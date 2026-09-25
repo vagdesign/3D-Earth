@@ -45,9 +45,17 @@ jobs:
         id: ver
         shell: pwsh
         run: |
-          $v = '0.2.0'
+          $v = '0.3.0'
           if ('${{ github.ref_type }}' -eq 'tag') { $v = '${{ github.ref_name }}'.TrimStart('v') }
           "version=$v" >> $env:GITHUB_OUTPUT
+
+      # ESO/S. Brunier Milky Way panorama (CC BY 4.0), bundled so the sky needs no download.
+      - name: Fetch Milky Way panorama
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Invoke-WebRequest -Uri 'https://cdn.eso.org/images/large/eso0932a.jpg' -OutFile web/assets/milkyway_eso.jpg -UserAgent '3DEarth-build'
+          Get-Item web/assets/milkyway_eso.jpg | Select-Object Name, Length
 
       - name: Publish (self-contained, win-x64)
         run: dotnet publish src/ThreeDEarth/ThreeDEarth.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ steps.ver.outputs.version }} -o publish

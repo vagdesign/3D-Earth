@@ -26,6 +26,15 @@ internal sealed class SettingsForm : Form
     private readonly TrackBar _stars = Track(0, 100);
     private readonly TrackBar _milkyWay = Track(0, 100);
     private readonly TrackBar _exposure = Track(50, 200);
+    private readonly TrackBar _land = Track(50, 150);
+    private readonly TrackBar _glint = Track(0, 200);
+    private readonly TrackBar _rough = Track(0, 100);
+    private readonly TrackBar _haze = Track(0, 200);
+    private readonly ComboBox _motion = Combo("Real time", "Spin around the Earth from my location", "Time-lapse");
+    private readonly NumericUpDown _spin = Num(10, 3600, 0);
+    private readonly NumericUpDown _speed = Num(1, 100000, 0);
+    private readonly CheckBox _useCustomTime = Check("Show a specific date and time");
+    private readonly DateTimePicker _customTime = new() { Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd  HH:mm", Width = 170 };
     private readonly ComboBox _quality = Combo("Low (integrated graphics)", "Medium", "High (8K textures)");
     private readonly ComboBox _fps = Combo("10", "15", "24", "30", "60");
     private readonly ComboBox _monitors = Combo("All monitors", "Primary monitor only");
@@ -55,11 +64,21 @@ internal sealed class SettingsForm : Form
         Padding = new Padding(12);
         Font = new Font("Segoe UI", 9f);
 
-        var grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 380));
+        var tabs = new TabControl { Margin = new Padding(0, 0, 0, 8) };
+        var grids = new List<TableLayoutPanel>();
+        TableLayoutPanel NewTab(string title)
+        {
+            var page = new TabPage(title) { UseVisualStyleBackColor = true, AutoScroll = true };
+            var g = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Location = new Point(12, 12) };
+            g.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            g.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 380));
+            page.Controls.Add(g);
+            tabs.TabPages.Add(page);
+            grids.Add(g);
+            return g;
+        }
 
-        Header(grid, "View");
+        var grid = NewTab("View");
         Row(grid, "Camera", _view);
         var guess = new Button { Text = "Guess from time zone", AutoSize = true };
         guess.Click += (_, _) =>
@@ -77,21 +96,35 @@ internal sealed class SettingsForm : Form
         Row(grid, "Moon view: sunlit ↔ terminator", _sunside);
         Row(grid, "Moon size", _moon);
 
-        Header(grid, "Weather");
+        grid = NewTab("Surface");
+        Row(grid, "Land brightness (diffuse)", _land);
+        Row(grid, "Ocean reflection", _glint);
+        Row(grid, "Ocean: calm mirror ↔ rough", _rough);
+        Row(grid, "Atmosphere haze", _haze);
+
+        grid = NewTab("Motion & time");
+        Row(grid, "Motion", _motion);
+        Row(grid, "Spin: seconds per 360°", _spin);
+        Row(grid, "Time-lapse speed (×)", _speed);
+        Row(grid, "", _useCustomTime);
+        Row(grid, "Date and time (local)", _customTime);
+        _useCustomTime.CheckedChanged += (_, _) => _customTime.Enabled = _useCustomTime.Checked;
+
+        grid = NewTab("Weather");
         Row(grid, "", _clouds);
         Row(grid, "Cloud opacity", _cloudOpacity);
         Row(grid, "", _storms);
         Row(grid, "Update every (minutes)", _refresh);
         Row(grid, "Cloud map URL", _cloudUrl);
 
-        Header(grid, "Sky");
+        grid = NewTab("Sky");
         Row(grid, "", _labels);
         Row(grid, "", _credits);
         Row(grid, "Stars", _stars);
         Row(grid, "Milky Way", _milkyWay);
         Row(grid, "Brightness", _exposure);
 
-        Header(grid, "Performance");
+        grid = NewTab("Performance");
         Row(grid, "Quality", _quality);
         Row(grid, "Frame rate (fps)", _fps);
         Row(grid, "Show on", _monitors);
@@ -103,15 +136,21 @@ internal sealed class SettingsForm : Form
         refreshNow.Click += (_, _) => { _refreshWeather(); _statusLabel.Text = "Downloading…"; };
         var openData = new LinkLabel { Text = "Open data folder", AutoSize = true, Margin = new Padding(12, 8, 0, 0) };
         openData.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo("explorer.exe", $"\"{Paths.Data}\"") { UseShellExecute = true });
-        Header(grid, "Status");
-        grid.Controls.Add(_statusLabel, 0, grid.RowCount);
-        grid.SetColumnSpan(_statusLabel, 2);
-        grid.RowCount++;
-        var actions = Flow(refreshNow, openData);
-        grid.Controls.Add(actions, 0, grid.RowCount);
-        grid.SetColumnSpan(actions, 2);
-        grid.RowCount++;
 
+        var actions = Flow(refreshNow, openData);
+        // Size the tab strip to its largest page.
+        var max = Size.Empty;
+        foreach (var g in grids)
+        {
+            var ps = g.PreferredSize;
+            max = new Size(Math.Max(max.Width, ps.Width), Math.Max(max.Height, ps.Height));
+        }
+        tabs.Size = new Size(max.Width + 40, max.Height + 60);
+
+        var root = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill };
+        root.Controls.Add(tabs);
+        root.Controls.Add(_statusLabel);
+        root.Controls.Add(actions);
         var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true, MinimumSize = new Size(80, 0) };
         var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true, MinimumSize = new Size(80, 0) };
         var applyButton = new Button { Text = "Apply", AutoSize = true, MinimumSize = new Size(80, 0) };
@@ -121,11 +160,8 @@ internal sealed class SettingsForm : Form
         CancelButton = cancel;
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 12, 0, 0) };
         buttons.Controls.AddRange(new Control[] { cancel, ok, applyButton });
-        grid.Controls.Add(buttons, 0, grid.RowCount);
-        grid.SetColumnSpan(buttons, 2);
-        grid.RowCount++;
-
-        Controls.Add(grid);
+        root.Controls.Add(buttons);
+        Controls.Add(root);
         LoadValues();
 
         var timer = new System.Windows.Forms.Timer { Interval = 2000, Enabled = true };
@@ -151,6 +187,17 @@ internal sealed class SettingsForm : Form
         _stars.Value = Clamp(_stars, (int)Math.Round(_s.Stars * 100));
         _milkyWay.Value = Clamp(_milkyWay, (int)Math.Round(_s.MilkyWay * 100));
         _exposure.Value = Clamp(_exposure, (int)Math.Round(_s.Exposure * 100));
+        _land.Value = Clamp(_land, (int)Math.Round(_s.LandBrightness * 100));
+        _glint.Value = Clamp(_glint, (int)Math.Round(_s.OceanReflection * 100));
+        _rough.Value = Clamp(_rough, (int)Math.Round(_s.OceanRoughness * 100));
+        _haze.Value = Clamp(_haze, (int)Math.Round(_s.Haze * 100));
+        _motion.SelectedIndex = _s.Motion switch { "spin" => 1, "timelapse" => 2, _ => 0 };
+        _spin.Value = (decimal)Math.Clamp(_s.SpinSeconds, 10, 3600);
+        _speed.Value = (decimal)Math.Clamp(_s.TimeSpeed, 1, 100000);
+        bool hasTime = DateTime.TryParse(_s.CustomTime, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var t);
+        _useCustomTime.Checked = hasTime && _s.CustomTime.Length > 0;
+        _customTime.Value = hasTime ? t.ToLocalTime() : DateTime.Now;
+        _customTime.Enabled = _useCustomTime.Checked;
         _quality.SelectedIndex = _s.Quality switch { "low" => 0, "high" => 2, _ => 1 };
         _fps.SelectedItem = _s.Fps.ToString(CultureInfo.InvariantCulture);
         if (_fps.SelectedIndex < 0) _fps.SelectedIndex = 3;
@@ -179,6 +226,16 @@ internal sealed class SettingsForm : Form
         _s.Stars = _stars.Value / 100.0;
         _s.MilkyWay = _milkyWay.Value / 100.0;
         _s.Exposure = _exposure.Value / 100.0;
+        _s.LandBrightness = _land.Value / 100.0;
+        _s.OceanReflection = _glint.Value / 100.0;
+        _s.OceanRoughness = _rough.Value / 100.0;
+        _s.Haze = _haze.Value / 100.0;
+        _s.Motion = _motion.SelectedIndex switch { 1 => "spin", 2 => "timelapse", _ => "live" };
+        _s.SpinSeconds = (double)_spin.Value;
+        _s.TimeSpeed = (double)_speed.Value;
+        _s.CustomTime = _useCustomTime.Checked
+            ? DateTime.SpecifyKind(_customTime.Value, DateTimeKind.Local).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)
+            : "";
         _s.Quality = _quality.SelectedIndex switch { 0 => "low", 2 => "high", _ => "medium" };
         _s.Fps = int.Parse((string)_fps.SelectedItem!, CultureInfo.InvariantCulture);
         _s.Monitors = _monitors.SelectedIndex == 1 ? "primary" : "all";

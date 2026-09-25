@@ -25,6 +25,9 @@ export function createEarth(shared) {
       uBumpTexel: { value: new THREE.Vector2(1 / 2048, 1 / 1024) },
       uCloudsOn: { value: 1 },
       uLightsI: { value: 1.5 },
+      uLand: { value: 1 },
+      uGlint: { value: 1 },
+      uRough: { value: 0.35 },
     },
   });
   const surface = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 128), earthMat);
@@ -131,6 +134,9 @@ export function createEarth(shared) {
     cloudShared.uShadowSteps.value = q === 'low' ? 2 : q === 'high' ? 5 : 4;
     cloudLayers.forEach((m) => { m.visible = settings.clouds && m.userData.active; });
     earthMat.uniforms.uCloudsOn.value = settings.clouds ? 1 : 0;
+    earthMat.uniforms.uLand.value = settings.landBrightness;
+    earthMat.uniforms.uGlint.value = settings.oceanReflection;
+    earthMat.uniforms.uRough.value = settings.oceanRoughness;
     cloudShared.uOpacity.value = settings.cloudOpacity;
   }
 

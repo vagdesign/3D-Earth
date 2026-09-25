@@ -26,6 +26,14 @@ public sealed class AppSettings
     public double Stars { get; set; } = 0.6;
     public double MilkyWay { get; set; } = 0.5;
     public double Exposure { get; set; } = 1.0;
+    public double LandBrightness { get; set; } = 1.0;
+    public double OceanReflection { get; set; } = 1.0;
+    public double OceanRoughness { get; set; } = 0.35;
+    public double Haze { get; set; } = 1.0;
+    public string Motion { get; set; } = "live";         // live | spin | timelapse
+    public double SpinSeconds { get; set; } = 60;
+    public double TimeSpeed { get; set; } = 60;
+    public string CustomTime { get; set; } = "";         // ISO 8601 UTC, empty = now
     public string Quality { get; set; } = "medium";      // low | medium | high
     public int Fps { get; set; } = 30;
     public double RenderScale { get; set; } = 1;

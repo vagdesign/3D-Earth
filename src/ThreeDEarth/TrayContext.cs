@@ -284,6 +284,7 @@ internal sealed class TrayContext : ApplicationContext
 
     // ------------------------------------------------------------------ tray menu
 
+    private ToolStripMenuItem? _motionLive, _motionSpin, _motionLapse;
     private ToolStripMenuItem? _viewMoon, _viewHome, _viewSunrise, _labelsItem, _stormsItem, _pauseItem, _autostartItem;
 
     private ContextMenuStrip BuildMenu()
@@ -299,6 +300,13 @@ internal sealed class TrayContext : ApplicationContext
         _viewSunrise = new ToolStripMenuItem("Sunrise behind the Earth", null, (_, _) => SetView("sunrise"));
         view.DropDownItems.AddRange(new ToolStripItem[] { _viewMoon, _viewHome, _viewSunrise });
         menu.Items.Add(view);
+
+        var motion = new ToolStripMenuItem("Motion");
+        _motionLive = new ToolStripMenuItem("Real time", null, (_, _) => Toggle(s => s.Motion = "live"));
+        _motionSpin = new ToolStripMenuItem("Spin 360° from my location", null, (_, _) => Toggle(s => s.Motion = "spin"));
+        _motionLapse = new ToolStripMenuItem("Time-lapse", null, (_, _) => Toggle(s => s.Motion = "timelapse"));
+        motion.DropDownItems.AddRange(new ToolStripItem[] { _motionLive, _motionSpin, _motionLapse });
+        menu.Items.Add(motion);
 
         _labelsItem = new ToolStripMenuItem("Moon and planet labels", null, (_, _) => Toggle(s => s.Labels = !s.Labels));
         _stormsItem = new ToolStripMenuItem("Storm labels", null, (_, _) => Toggle(s => s.Storms = !s.Storms));
@@ -338,6 +346,9 @@ internal sealed class TrayContext : ApplicationContext
         _viewHome!.Checked = _settings.View == "home";
         _viewSunrise!.Checked = _settings.View == "sunrise";
         _labelsItem!.Checked = _settings.Labels;
+        _motionLive!.Checked = _settings.Motion == "live";
+        _motionSpin!.Checked = _settings.Motion == "spin";
+        _motionLapse!.Checked = _settings.Motion == "timelapse";
         _stormsItem!.Checked = _settings.Storms;
         _pauseItem!.Checked = _userPaused;
         _autostartItem!.Checked = StartupRegistration.IsEnabled;

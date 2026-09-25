@@ -22,10 +22,26 @@ const interactive = query.has('interactive');
 let settings = mergeSettings(DEFAULTS, settingsFromQuery(location.search));
 let paused = false;
 
-// ---- time (real time by default; ?t=ISO and ?timeSpeed=N for previews) ----
-const wallStart = Date.now();
-const simStart = query.has('t') ? new Date(query.get('t')).getTime() : wallStart;
-const simNow = () => new Date(simStart + (Date.now() - wallStart) * settings.timeSpeed);
+// ---- time: live, a custom date/time, or time-lapse (?t=ISO&timeSpeed=N for previews) ----
+let timeBase = { wall: Date.now(), sim: initialSimTime() };
+function initialSimTime() {
+  if (query.has('t')) return new Date(query.get('t')).getTime();
+  const c = settings.customTime ? Date.parse(settings.customTime) : NaN;
+  return Number.isFinite(c) ? c : Date.now();
+}
+const timeSpeed = () => (settings.motion === 'timelapse' || query.has('timeSpeed') ? settings.timeSpeed : 1);
+const simNow = () => new Date(timeBase.sim + (Date.now() - timeBase.wall) * timeSpeed());
+function rebaseTime(prev) {
+  const customChanged = prev.customTime !== settings.customTime;
+  const backToLive = prev.motion === 'timelapse' && settings.motion !== 'timelapse';
+  const sim = customChanged || backToLive ? initialSimTime() : simNow().getTime();
+  timeBase = { wall: Date.now(), sim };
+}
+
+// 'spin' motion: orbit the Earth once per spinSeconds, starting above my location.
+const spinStart = performance.now();
+const spinQ = new THREE.Quaternion();
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 // ---- renderer ----
 const canvas = document.getElementById('scene');
@@ -49,6 +65,7 @@ const shared = {
   uSunDir: { value: new THREE.Vector3(1, 0, 0) },
   uSun: { value: 2.1 },
   uCamPos: { value: new THREE.Vector3() },
+  uHaze: { value: 1 },
 };
 
 const earth = createEarth(shared);
@@ -62,13 +79,23 @@ const labels = new Labels(document.getElementById('labels'));
 const controls = interactive || !host
   ? createControls(canvas, { onClose: () => host && host.postMessage({ type: 'close' }) })
   : null;
-if (controls) showHelp();
-
-function showHelp() {
+let helpTimer = 0;
+function showHelp(ms = 15000) {
   const help = document.getElementById('help');
   if (!help) return;
   help.hidden = false;
-  setTimeout(() => help.classList.add('fade'), 7000);
+  help.classList.remove('fade');
+  clearTimeout(helpTimer);
+  helpTimer = setTimeout(() => help.classList.add('fade'), ms);
+}
+if (controls) {
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'h' || e.key === 'H' || e.key === '?' || e.key === 'F1') {
+      e.preventDefault();
+      const help = document.getElementById('help');
+      if (help.hidden || help.classList.contains('fade')) showHelp(60000); else help.classList.add('fade');
+    }
+  });
 }
 
 // Credits (bottom-right, kept clear of the taskbar).
@@ -142,12 +169,15 @@ async function refreshData(first = false) {
 function onMessage(msg) {
   if (!msg || typeof msg !== 'object') return;
   switch (msg.type) {
-    case 'settings':
+    case 'settings': {
+      const prev = settings;
       settings = mergeSettings(DEFAULTS, msg.settings);
+      rebaseTime(prev);
       applyCredits();
       resize();
       render();
       break;
+    }
     case 'insets':
       setInsets(msg);
       break;
@@ -183,8 +213,20 @@ function render() {
   lastRender = now;
   eph = computeEphemeris(simNow());
   earth.group.rotation.y = eph.earthRotation;
-  const view = controls ? controls.update(dt, camera, height) : null;
-  frameCamera(camera, settings, eph, width, height, view);
+  let view = controls ? controls.update(dt, camera, height) : null;
+  let frameSettings = settings;
+  if (settings.motion === 'spin') {
+    // Start above my location and orbit westward once per spinSeconds, so the
+    // Earth appears to turn eastward beneath the camera.
+    const t = (now - spinStart) / 1000 / Math.max(5, settings.spinSeconds);
+    spinQ.setFromAxisAngle(Y_AXIS, -t * Math.PI * 2);
+    frameSettings = { ...settings, view: 'home' };
+    view = view
+      ? { ...view, rotation: view.rotation.clone().multiply(spinQ) }
+      : { zoom: 1, panX: 0, panY: 0, rotation: spinQ };
+  }
+  frameCamera(camera, frameSettings, eph, width, height, view);
+  shared.uHaze.value = settings.haze;
 
   shared.uSunDir.value.copy(eph.sunDir);
   shared.uCamPos.value.copy(camera.position);
@@ -247,6 +289,7 @@ function showDebug(now) {
 
 applyCredits();
 await refreshData(true);
+if (controls) showHelp();
 // Without a host, poll for new data now and then (useful when served from a folder).
 if (!host) setInterval(() => refreshData(), 10 * 60 * 1000);
 requestAnimationFrame(loop);

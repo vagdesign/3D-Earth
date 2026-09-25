@@ -37,9 +37,10 @@ Right-click the globe in the notification area:
 | Open in a window | The interactive scene in a normal window. |
 | Moon / planet labels, Storm labels | Toggle the small text labels. |
 | Update weather now | Downloads the newest cloud map and storm list. |
+| **Motion** | *Real time*, *Spin 360° from my location* (one turn per minute by default), or *Time-lapse*. The speed and a specific date/time are in Settings. |
 | Pause | Stops rendering, which uses 0% GPU. |
 | Start with Windows | Adds or removes the per-user autostart entry. |
-| **Settings…** | Location, Earth size and position, Moon size (true size up to 4×), clouds, stars, brightness, quality, frame rate, monitors, power saving, update interval, custom cloud-map URL. |
+| **Settings…** | Tabs for view, surface (land brightness, ocean reflection and roughness, haze), motion and time, weather, sky and performance. Includes location, Earth size and position, Moon size (true size up to 4×), clouds, stars, brightness, quality, frame rate, monitors, power saving, update interval, custom cloud-map URL. |
 
 ### Interactive controls (Explore / window)
 
@@ -49,6 +50,7 @@ Right-click the globe in the notification area:
 | W A S D or the arrow keys | Pan |
 | + / −, Page Up / Page Down, mouse wheel | Zoom in / out |
 | R, Home or double-click | Reset the view |
+| H, ? or F1 | Show or hide this help |
 | Esc | Close Explore |
 
 The wallpaper itself does not react to the mouse, because Windows sends desktop clicks to the icons. Use Explore for that.
@@ -87,7 +89,8 @@ Everything is in its real place. The scene uses the Earth's real rotation (sider
 | Tropical cyclones | [NOAA National Hurricane Center](https://www.nhc.noaa.gov/) `CurrentStorms.json` and [GDACS](https://www.gdacs.org/) | same |
 | HD day and night textures, Moon | [Solar System Scope](https://www.solarsystemscope.com/textures/) (CC BY 4.0), based on NASA imagery | once |
 | Offline textures (bundled) | NASA Blue Marble / Earth at Night (public domain), via three-globe examples | — |
-| Stars, Milky Way | [d3-celestial](https://github.com/ofrohn/d3-celestial) data (Yale Bright Star Catalogue) | — |
+| Milky Way | [ESO/S. Brunier panorama](https://www.eso.org/public/images/eso0932a/) (CC BY 4.0), mapped from galactic coordinates | — |
+| Stars | [d3-celestial](https://github.com/ofrohn/d3-celestial) data (Yale Bright Star Catalogue) | — |
 
 You can set your own cloud source in **Settings → Cloud map URL**. It must be an equirectangular (2:1) image with white clouds on black.
 

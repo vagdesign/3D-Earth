@@ -84,14 +84,41 @@ export async function createSky(scene) {
   group.add(celestial);
   scene.add(group);
 
-  // Milky Way (equirectangular, RA/Dec), drawn first.
-  const mwTex = await loadFirst(['assets/milkyway.jpg'], { srgb: true });
+  // Milky Way, drawn first. Preferred: the ESO/S. Brunier 360° panorama
+  // (galactic coordinates, bundled by the build). Fallback: our own map in RA/Dec.
+  let mwTex = await loadFirst(['assets/milkyway_eso.jpg'], { srgb: true, wrap: false });
+  const galactic = !!mwTex;
+  if (!mwTex) mwTex = await loadFirst(['assets/milkyway.jpg'], { srgb: true });
+  if (galactic) {
+    // No mipmaps: the longitude seam would otherwise show as a line.
+    mwTex.generateMipmaps = false;
+    mwTex.minFilter = THREE.LinearFilter;
+    mwTex.wrapS = THREE.RepeatWrapping;
+  }
+  // J2000 equatorial -> galactic rotation.
+  const galMatrix = new THREE.Matrix3().set(
+    -0.0548755604, -0.8734370902, -0.4838350155,
+    0.4941094279, -0.4448296300, 0.7469822445,
+    -0.8676661490, -0.1980763734, 0.4559837762);
   const mwMat = new THREE.ShaderMaterial({
-    vertexShader: BILLBOARD_VERT,
+    vertexShader: /* glsl */ `
+      varying vec2 vUv; varying vec3 vDir;
+      void main() { vUv = uv; vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: /* glsl */ `
-      uniform sampler2D uMap; uniform float uI; varying vec2 vUv;
-      void main() { gl_FragColor = vec4(texture2D(uMap, vUv).rgb * uI, 1.0); }`,
-    uniforms: { uMap: { value: mwTex }, uI: { value: 0.05 } },
+      uniform sampler2D uMap; uniform float uI; uniform float uGalactic; uniform mat3 uGal;
+      varying vec2 vUv; varying vec3 vDir;
+      void main() {
+        vec2 uv = vUv;
+        if (uGalactic > 0.5) {
+          vec3 d = normalize(vDir);
+          vec3 g = uGal * vec3(d.x, -d.z, d.y);           // scene axes -> equatorial -> galactic
+          float l = atan(g.y, g.x);
+          float b = asin(clamp(g.z, -1.0, 1.0));
+          uv = vec2(0.5 - l / 6.28318530718, 0.5 + b / 3.14159265359);  // longitude grows to the left
+        }
+        gl_FragColor = vec4(texture2D(uMap, uv).rgb * uI, 1.0);
+      }`,
+    uniforms: { uMap: { value: mwTex }, uI: { value: 0.05 }, uGalactic: { value: galactic ? 1 : 0 }, uGal: { value: galMatrix } },
     side: THREE.BackSide, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending,
   });
   const milkyWay = new THREE.Mesh(new THREE.SphereGeometry(SKY_R, 96, 48), mwMat);
@@ -166,9 +193,10 @@ export async function createSky(scene) {
 
     const pr = pixelRatio;
     starMat.uniforms.uScale.value = pr;
-    starMat.uniforms.uIntensity.value = 1.6 * settings.stars;
+    // The photographic panorama already contains the stars: keep catalogue stars subtle.
+    starMat.uniforms.uIntensity.value = (galactic ? 0.8 : 1.6) * settings.stars;
     stars.visible = settings.stars > 0.001;
-    mwMat.uniforms.uI.value = 0.09 * settings.milkyWay;
+    mwMat.uniforms.uI.value = (galactic ? 0.32 : 0.09) * settings.milkyWay;
     milkyWay.visible = settings.milkyWay > 0.001 && !!mwTex;
 
     const pp = planetGeo.attributes.position, pc = planetGeo.attributes.aColor, ps = planetGeo.attributes.aSize;

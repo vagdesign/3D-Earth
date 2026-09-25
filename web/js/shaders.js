@@ -10,6 +10,7 @@ export const COMMON = /* glsl */ `
 uniform vec3 uSunDir;
 uniform float uSun;
 uniform vec3 uCamPos;
+uniform float uHaze;         // atmosphere haze strength (setting)
 
 const float ATM_H = ${ATM_H.toFixed(6)};
 const float ATM_X = 1.0 / ATM_H;
@@ -49,7 +50,7 @@ vec3 phaseMix(float mu) {
 vec3 inscatter(vec3 Tv, vec3 sunT, float mu) {
   // (1 - T) of the light is scattered over the whole sphere; 1/4 matches the
   // surface's Lambert normalisation used below.
-  return uSun * sunT * (1.0 - Tv) * phaseMix(mu) * 0.25;
+  return uSun * sunT * (1.0 - Tv) * phaseMix(mu) * 0.25 * uHaze;
 }
 
 // ---- clouds ----
@@ -99,6 +100,9 @@ uniform sampler2D uWater;
 uniform vec2 uBumpTexel;
 uniform float uCloudsOn;
 uniform float uLightsI;
+uniform float uLand;         // land brightness / diffuse albedo (setting)
+uniform float uGlint;        // ocean reflection strength (setting)
+uniform float uRough;        // ocean roughness 0 = mirror ... 1 = matte (setting)
 varying vec2 vUv;
 varying vec3 vN;
 varying vec3 vPos;
@@ -128,6 +132,7 @@ void main() {
   vec3 albedo = texture2D(uDay, vUv).rgb;
   // Deepen the oceans slightly; Blue Marble oceans read a little bright from orbit.
   albedo = mix(albedo, albedo * vec3(0.55, 0.72, 0.95), water * 0.5);
+  albedo *= mix(uLand, 1.0, water);
 
   float cloud = uCloudsOn > 0.5 ? cloudAt(vUv) : 0.0;
   float shadow = 1.0;
@@ -139,13 +144,19 @@ void main() {
 
   vec3 col = albedo * uSun * sunT * diff * shadow;
 
-  // Specular sun glint on water.
+  // Ocean: energy-conserving Blinn-Phong glint with Schlick Fresnel; the
+  // roughness setting widens the sun glint, the reflection setting scales it.
   vec3 H = normalize(L + V);
   float nh = max(dot(N, H), 0.0);
   float nv = max(dot(N, V), 0.0);
-  float fres = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
-  float glint = pow(nh, 350.0) * 0.6 + pow(nh, 60.0) * 0.018;
-  col += water * uSun * sunT * shadow * glint * (0.25 + fres) * step(0.0, muS) * (1.0 - cloud);
+  float rough = clamp(uRough, 0.02, 1.0);
+  float shin = mix(3000.0, 20.0, pow(rough, 0.6));
+  float Fh = 0.02 + 0.98 * pow(1.0 - max(dot(H, V), 0.0), 5.0);
+  float spec = (shin + 8.0) / (8.0 * PI) * pow(nh, shin) * Fh * max(muS, 0.0);
+  col += water * uGlint * uSun * sunT * shadow * spec * (1.0 - cloud) * 0.6;
+  // Skylight reflected by the sea at grazing angles.
+  float Fv = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
+  col += water * uGlint * Fv * vec3(0.09, 0.16, 0.32) * uSun * sunTransmittance(1.0, muS) * 0.12 * (1.0 - cloud);
 
   // City lights on the night side, hidden by clouds.
   float night = smoothstep(0.06, -0.14, muS);

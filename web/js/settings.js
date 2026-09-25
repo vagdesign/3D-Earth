@@ -18,10 +18,17 @@ export const DEFAULTS = {
   stars: 0.6,
   milkyWay: 0.5,
   exposure: 1.0,
+  landBrightness: 1.0,   // diffuse albedo of land
+  oceanReflection: 1.0,  // strength of sun glint + sky reflection on water
+  oceanRoughness: 0.35,  // 0 = mirror-calm sea, 1 = rough/matte
+  haze: 1.0,             // atmospheric haze over the surface
   quality: 'medium',     // 'low' | 'medium' | 'high'
   fps: 30,
   renderScale: 1,
-  timeSpeed: 1,
+  motion: 'live',        // 'live' | 'spin' (orbit from my location) | 'timelapse'
+  spinSeconds: 60,       // 'spin': seconds per 360°
+  timeSpeed: 60,         // 'timelapse': simulated seconds per real second
+  customTime: '',        // ISO date/time to show instead of now ('' = live)
 };
 
 const NUMERIC = Object.keys(DEFAULTS).filter((k) => typeof DEFAULTS[k] === 'number');
