@@ -25,18 +25,22 @@ const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || undefined,
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
-const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
-page.on('console', (m) => console.log('[page]', m.text()));
 let failed = false;
-page.on('pageerror', (e) => { failed = true; console.log('[error]', e.message); });
 for (const [i, q] of queries.entries()) {
   const [qs, size] = q.split('@');
-  if (size) { const [w, h] = size.split('x').map(Number); await page.setViewportSize({ width: w, height: h }); }
-  await page.goto(`http://localhost:${port}/index.html?capture&fps=2&${qs}`);
-  await page.waitForFunction(() => document.documentElement.dataset.ready === '1', null, { timeout: 120000 });
+  const [w, h] = size ? size.split('x').map(Number) : [1600, 900];
+  // A fresh page per shot: software WebGL is slow, and navigating away from a
+  // page that is still rendering can stall.
+  const page = await browser.newPage({ viewport: { width: w, height: h } });
+  page.setDefaultTimeout(180000);
+  page.on('console', (m) => { if (!/404/.test(m.text())) console.log('[page]', m.text()); });
+  page.on('pageerror', (e) => { failed = true; console.log('[error]', e.message); });
+  await page.goto(`http://localhost:${port}/index.html?capture&fps=2&${qs}`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.documentElement.dataset.ready === '1', null, { timeout: 180000 });
   await page.waitForTimeout(2500);
   const file = path.join(outDir, `${String(i).padStart(2, '0')}-${qs.replace(/[^a-z0-9=.-]+/gi, '_')}.png`);
   await page.screenshot({ path: file });
+  await page.close();
   console.log('saved', file);
 }
 await browser.close();
