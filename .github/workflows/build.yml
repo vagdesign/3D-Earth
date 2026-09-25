@@ -76,8 +76,23 @@ jobs:
           name: 3DEarth-${{ steps.ver.outputs.version }}-win-x64
           path: out/*
 
+      # Every push to main (or a v* tag) publishes/updates the release for the
+      # current version, so there is always a plain download page under Releases.
       - name: GitHub release
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: 3D Earth ${{ steps.ver.outputs.version }}
+          make_latest: true
           files: out/*
+          body: |
+            **Download `3DEarth-Setup-${{ steps.ver.outputs.version }}.exe` below and run it.**
+
+            - Windows 10 (1809+) or Windows 11, x64. No administrator rights needed.
+            - Windows SmartScreen may warn because the installer is not code-signed: click *More info → Run anyway*.
+            - Needs the Microsoft Edge WebView2 Runtime (already on almost every PC; the installer offers the link if missing).
+            - Prefer no installer? Use the portable `.zip`: unzip anywhere and run `3DEarth.exe`.
+
+            Built from ${{ github.sha }}.

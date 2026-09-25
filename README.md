@@ -16,7 +16,7 @@ A real-time 3D Earth that lives **on your desktop, behind the icons and the task
 
 ## Install
 
-1. Download `3DEarth-Setup-x.y.z.exe` from **Releases**, or from the latest **Actions → Build** run (artifact).
+1. Download `3DEarth-Setup-x.y.z.exe` from the [latest release](https://github.com/vagdesign/3D-Earth/releases/latest).
 2. Run it. Administrator rights are not needed; it installs per user. Leave **"Start 3D Earth automatically when I sign in"** ticked to have it start with Windows.
 3. The Earth replaces your desktop background immediately. A globe icon appears in the notification area.
 
