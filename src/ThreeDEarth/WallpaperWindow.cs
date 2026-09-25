@@ -23,32 +23,46 @@ internal sealed class WallpaperWindow : Form
     /// <summary>Raised when the shared WebView2 browser process has died.</summary>
     public event Action? BrowserCrashed;
 
-    public WallpaperWindow(Screen screen, CoreWebView2Environment env, Func<AppSettings> settings)
+    private readonly bool _preview;
+
+    public WallpaperWindow(Screen screen, CoreWebView2Environment env, Func<AppSettings> settings, bool preview = false)
     {
         Screen = screen;
         _env = env;
         _settings = settings;
+        _preview = preview;
 
-        Text = "3D Earth wallpaper";
-        FormBorderStyle = FormBorderStyle.None;
-        ShowInTaskbar = false;
-        StartPosition = FormStartPosition.Manual;
         AutoScaleMode = AutoScaleMode.None;
         BackColor = Color.Black;
-        Bounds = screen.Bounds;
+        if (preview)
+        {
+            // Troubleshooting: the same scene in an ordinary window.
+            Text = "3D Earth preview";
+            Icon = TrayContext.AppIcon;
+            StartPosition = FormStartPosition.CenterScreen;
+            Size = new Size(Math.Min(1280, screen.WorkingArea.Width - 80), Math.Min(760, screen.WorkingArea.Height - 80));
+        }
+        else
+        {
+            Text = "3D Earth wallpaper";
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.Manual;
+            Bounds = screen.Bounds;
+        }
 
         _web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.Black };
         Controls.Add(_web);
     }
 
-    protected override bool ShowWithoutActivation => true;
+    protected override bool ShowWithoutActivation => !_preview;
 
     protected override CreateParams CreateParams
     {
         get
         {
             var cp = base.CreateParams;
-            cp.ExStyle |= (int)(NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE);
+            if (!_preview) cp.ExStyle |= (int)(NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE);
             return cp;
         }
     }
@@ -77,6 +91,9 @@ internal sealed class WallpaperWindow : Form
             else
                 BeginInvoke(() => { try { core.Reload(); } catch { /* window is going away */ } });
         };
+        core.NavigationCompleted += (_, e) =>
+            Log.Info($"[{LogName()}] navigation {(e.IsSuccess ? "ok" : "FAILED: " + e.WebErrorStatus)} (HTTP {e.HttpStatusCode})");
+        Log.Info($"[{LogName()}] WebView2 ready; navigating");
         core.Navigate($"{Origin}/index.html");
     }
 
@@ -138,8 +155,14 @@ internal sealed class WallpaperWindow : Form
         try
         {
             using var doc = JsonDocument.Parse(e.WebMessageAsJson);
-            if (doc.RootElement.TryGetProperty("type", out var t) && t.GetString() == "ready")
+            string type = doc.RootElement.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+            if (type == "log")
             {
+                Log.Info($"[{LogName()} page] {doc.RootElement.GetProperty("message").GetString()}");
+            }
+            else if (type == "ready")
+            {
+                Log.Info($"[{LogName()}] scene ready");
                 _ready = true;
                 SendSettings(_settings());
                 Post(new { type = "pause", paused = _paused });
@@ -147,6 +170,8 @@ internal sealed class WallpaperWindow : Form
         }
         catch (Exception ex) { Log.Error("Web message", ex); }
     }
+
+    private string LogName() => _preview ? "preview" : Screen.DeviceName.TrimStart('\\', '.');
 
     private void Post(object message)
     {

@@ -45,7 +45,7 @@ internal sealed class DesktopLayer
                 DefView = defView;
                 WorkerW = worker;
                 Parent = progman;
-                Log.Info("Desktop layer: Windows 11 24H2+ layout");
+                Log.Info("Desktop layer: Windows 11 24H2+ layout; " + Describe());
                 return true;
             }
         }
@@ -65,13 +65,18 @@ internal sealed class DesktopLayer
         DefView = foundDefView;
         WorkerW = found;
         Parent = found != IntPtr.Zero ? found : progman;
-        Log.Info(found != IntPtr.Zero ? "Desktop layer: classic WorkerW layout" : "Desktop layer: falling back to Progman");
+        Log.Info((found != IntPtr.Zero ? "Desktop layer: classic WorkerW layout; " : "Desktop layer: falling back to Progman; ") + Describe());
         return Parent != IntPtr.Zero;
     }
 
     /// <summary>Parents <paramref name="hwnd"/> into the layer covering <paramref name="screenBounds"/>.</summary>
     public void Attach(IntPtr hwnd, Rectangle screenBounds)
     {
+        // Become a real child window: GetParent/positioning then refer to the desktop layer.
+        long style = GetWindowLongPtr(hwnd, GWL_STYLE).ToInt64();
+        style = (style & ~(WS_POPUP | WS_CAPTION | WS_THICKFRAME)) | WS_CHILD | WS_CLIPCHILDREN;
+        SetWindowLongPtr(hwnd, GWL_STYLE, new IntPtr(style));
+
         long ex = GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
         ex |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
         ex &= ~WS_EX_APPWINDOW;
@@ -79,8 +84,11 @@ internal sealed class DesktopLayer
         SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(ex));
         if (RaisedDesktop) SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
 
-        SetParent(hwnd, Parent);
+        IntPtr previous = SetParent(hwnd, Parent);
+        int err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
         Place(hwnd, screenBounds);
+        Log.Info($"Attached 0x{hwnd:X} to 0x{Parent:X} ({ClassNameOf(Parent)}) at {screenBounds}; " +
+                 $"SetParent returned 0x{previous:X} (error {err}); parent now 0x{GetAncestor(hwnd, GA_PARENT):X}");
     }
 
     public void Place(IntPtr hwnd, Rectangle screenBounds)
@@ -102,7 +110,11 @@ internal sealed class DesktopLayer
         }
     }
 
-    public bool Owns(IntPtr hwnd) => IsWindow(hwnd) && GetParent(hwnd) == Parent;
+    public bool Owns(IntPtr hwnd) => IsWindow(hwnd) && GetAncestor(hwnd, GA_PARENT) == Parent;
+
+    public string Describe() =>
+        $"parent=0x{Parent:X} ({(Parent != IntPtr.Zero ? ClassNameOf(Parent) : "-")}), defView=0x{DefView:X}, " +
+        $"workerW=0x{WorkerW:X} (visible={WorkerW != IntPtr.Zero && IsWindowVisible(WorkerW)}), raised={RaisedDesktop}";
 
     /// <summary>Re-applies the user's static wallpaper so Explorer repaints the desktop after we leave.</summary>
     public static void RefreshStaticWallpaper()

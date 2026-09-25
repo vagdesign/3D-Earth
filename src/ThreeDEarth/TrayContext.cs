@@ -75,7 +75,9 @@ internal sealed class TrayContext : ApplicationContext
         try
         {
             string version = CoreWebView2Environment.GetAvailableBrowserVersionString();
-            Log.Info($"Starting; WebView2 runtime {version}; OS {Environment.OSVersion}");
+            Log.Info($"Starting 3D Earth {Application.ProductVersion}; WebView2 runtime {version}; OS {Environment.OSVersion}; " +
+                     $"build {Microsoft.Win32.Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion", "DisplayVersion", "?")}; " +
+                     $"screens: {string.Join(", ", Screen.AllScreens.Select(sc => sc.Bounds.ToString()))}");
         }
         catch (WebView2RuntimeNotFoundException)
         {
@@ -89,6 +91,7 @@ internal sealed class TrayContext : ApplicationContext
         }
 
         await StartBrowserAsync();
+        if (Environment.GetCommandLineArgs().Contains("--preview")) await ShowPreviewAsync();
         await RebuildAsync();
         _watchdog.Start();
         _data.Start();
@@ -132,7 +135,7 @@ internal sealed class TrayContext : ApplicationContext
                 _windows.Add(w);
                 await w.InitializeAsync();
             }
-            Log.Info($"Wallpaper on {_windows.Count} monitor(s)");
+            Log.Info($"Wallpaper on {_windows.Count} monitor(s); " + _layer.Describe());
             UpdatePause();
         }
         catch (Exception ex)
@@ -184,13 +187,29 @@ internal sealed class TrayContext : ApplicationContext
         _windows.Clear();
     }
 
+    private readonly Queue<DateTime> _reattachTimes = new();
+    private bool _reattachSuspended;
+
     private void Watchdog()
     {
         if (_building || _env == null) return;
         // Explorer restarted or the desktop layer was recreated -> re-attach.
-        if (!_layer.IsValid || _windows.Any(w => w.IsDisposed || !w.IsHandleCreated || !_layer.Owns(w.Handle)))
+        if (!_reattachSuspended && (!_layer.IsValid || _windows.Any(w => w.IsDisposed || !w.IsHandleCreated || !_layer.Owns(w.Handle))))
         {
-            Log.Info("Desktop layer changed; re-attaching");
+            // Never loop: at most 3 automatic re-attaches in 5 minutes.
+            var now = DateTime.UtcNow;
+            while (_reattachTimes.Count > 0 && now - _reattachTimes.Peek() > TimeSpan.FromMinutes(5)) _reattachTimes.Dequeue();
+            if (_reattachTimes.Count >= 3)
+            {
+                _reattachSuspended = true;
+                Log.Info("Re-attach keeps failing; automatic re-attach suspended. " + _layer.Describe());
+                _tray.ShowBalloonTip(8000, Program.AppName,
+                    "The wallpaper could not stay attached to the desktop. Right-click the globe → Troubleshooting.",
+                    ToolTipIcon.Warning);
+                return;
+            }
+            _reattachTimes.Enqueue(now);
+            Log.Info("Desktop layer changed; re-attaching. " + _layer.Describe());
             _ = RebuildAsync();
             return;
         }
@@ -223,6 +242,18 @@ internal sealed class TrayContext : ApplicationContext
         if (qualityChanged) _ = _data.RefreshAsync(forceTextures: true);
         else if (refreshChanged) _data.Reschedule();
         UpdatePause();
+    }
+
+    private WallpaperWindow? _preview;
+
+    private async Task ShowPreviewAsync()
+    {
+        if (_env == null) return;
+        if (_preview is { IsDisposed: false }) { _preview.Activate(); return; }
+        _preview = new WallpaperWindow(Screen.PrimaryScreen ?? Screen.AllScreens[0], _env, () => _settings, preview: true);
+        _preview.FormClosed += (_, _) => _preview = null;
+        _preview.Show();
+        await _preview.InitializeAsync();
     }
 
     private void ShowSettings()
@@ -279,6 +310,17 @@ internal sealed class TrayContext : ApplicationContext
         _autostartItem = new ToolStripMenuItem("Start with Windows", null, (_, _) => { StartupRegistration.Set(!StartupRegistration.IsEnabled); UpdateMenuChecks(); });
         menu.Items.Add(_autostartItem);
         menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()) { Font = new Font(menu.Font, FontStyle.Bold) });
+        var trouble = new ToolStripMenuItem("Troubleshooting");
+        trouble.DropDownItems.Add(new ToolStripMenuItem("Preview in a window", null, (_, _) => _ = ShowPreviewAsync()));
+        trouble.DropDownItems.Add(new ToolStripMenuItem("Re-attach to the desktop", null, (_, _) =>
+        {
+            _reattachSuspended = false;
+            _reattachTimes.Clear();
+            _ = RebuildAsync();
+        }));
+        trouble.DropDownItems.Add(new ToolStripMenuItem("Open log file", null, (_, _) =>
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Paths.LogFile) { UseShellExecute = true })));
+        menu.Items.Add(trouble);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitThread()));
         menu.Opening += (_, _) => UpdateMenuChecks();
@@ -341,6 +383,7 @@ internal sealed class TrayContext : ApplicationContext
         _showSettingsWait.Unregister(null);
         _showSettingsEvent.Dispose();
         _settingsForm?.Close();
+        _preview?.Close();
         CloseWindows();
         DesktopLayer.RefreshStaticWallpaper();
         _data.Dispose();

@@ -62,6 +62,12 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern IntPtr GetParent(IntPtr hWnd);
 
+    public const uint GA_PARENT = 1;
+
+    /// <summary>The real parent window (GetParent returns the owner for WS_POPUP windows).</summary>
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool IsWindow(IntPtr hWnd);

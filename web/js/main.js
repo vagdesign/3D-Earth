@@ -10,6 +10,9 @@ import { POST_FRAG } from './shaders.js';
 import { setMaxAnisotropy, fetchJson } from './textures.js';
 
 const host = window.chrome && window.chrome.webview ? window.chrome.webview : null;
+const hostLog = (message) => { try { host && host.postMessage({ type: 'log', message: String(message) }); } catch { /* ignore */ } };
+window.addEventListener('error', (e) => hostLog(`error: ${e.message} at ${e.filename}:${e.lineno}`));
+window.addEventListener('unhandledrejection', (e) => hostLog(`unhandled: ${e.reason && (e.reason.stack || e.reason.message) || e.reason}`));
 const query = new URLSearchParams(location.search);
 const DATA = 'data/';
 const debug = query.has('debug');
@@ -28,6 +31,14 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: fals
 renderer.autoClear = true;
 renderer.setClearColor(0x000000, 1);
 setMaxAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
+{
+  const gl = renderer.getContext();
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  hostLog(`WebGL ${renderer.capabilities.isWebGL2 ? '2' : '1'}; GPU: ${dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown'}; ` +
+          `max texture ${renderer.capabilities.maxTextureSize}; ${window.innerWidth}x${window.innerHeight} @${window.devicePixelRatio}`);
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); hostLog('WebGL context lost'); });
+  canvas.addEventListener('webglcontextrestored', () => { hostLog('WebGL context restored; reloading'); location.reload(); });
+}
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(40, 16 / 9, 0.01, 4000);
