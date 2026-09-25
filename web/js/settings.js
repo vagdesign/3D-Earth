@@ -14,6 +14,7 @@ export const DEFAULTS = {
   cloudOpacity: 1,
   storms: true,
   labels: true,
+  credits: true,
   stars: 0.6,
   milkyWay: 0.5,
   exposure: 1.0,

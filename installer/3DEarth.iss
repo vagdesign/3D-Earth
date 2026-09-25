@@ -4,7 +4,7 @@
 #define AppName "3D Earth"
 #define AppExe "3DEarth.exe"
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.2.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\publish"
@@ -15,7 +15,8 @@ AppId={{8C3F1E52-4B7A-4D0E-9E6B-3D5A0E1A2B7C}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
-AppPublisher=vagdesign
+AppPublisher=Ax-Easy (Vangelis Makridakis)
+AppPublisherURL=https://www.ax-easy.com
 DefaultDirName={localappdata}\Programs\3D Earth
 DisableProgramGroupPage=yes
 DisableDirPage=auto

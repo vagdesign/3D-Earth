@@ -8,6 +8,7 @@ import { frameCamera } from './framing.js';
 import { Labels, hiddenByEarth } from './labels.js';
 import { POST_FRAG } from './shaders.js';
 import { setMaxAnisotropy, fetchJson } from './textures.js';
+import { createControls } from './controls.js';
 
 const host = window.chrome && window.chrome.webview ? window.chrome.webview : null;
 const hostLog = (message) => { try { host && host.postMessage({ type: 'log', message: String(message) }); } catch { /* ignore */ } };
@@ -16,6 +17,7 @@ window.addEventListener('unhandledrejection', (e) => hostLog(`unhandled: ${e.rea
 const query = new URLSearchParams(location.search);
 const DATA = 'data/';
 const debug = query.has('debug');
+const interactive = query.has('interactive');
 
 let settings = mergeSettings(DEFAULTS, settingsFromQuery(location.search));
 let paused = false;
@@ -55,6 +57,30 @@ const moon = createMoon(shared);
 scene.add(moon.mesh);
 const sky = await createSky(scene);
 const labels = new Labels(document.getElementById('labels'));
+
+// Interactive controls (Preview / Explore windows and plain browsers).
+const controls = interactive || !host
+  ? createControls(canvas, { onClose: () => host && host.postMessage({ type: 'close' }) })
+  : null;
+if (controls) showHelp();
+
+function showHelp() {
+  const help = document.getElementById('help');
+  if (!help) return;
+  help.hidden = false;
+  setTimeout(() => help.classList.add('fade'), 7000);
+}
+
+// Credits (bottom-right, kept clear of the taskbar).
+function applyCredits() {
+  document.getElementById('credits').hidden = !settings.credits;
+}
+function setInsets(i) {
+  const dpr = window.devicePixelRatio || 1;
+  const root = document.documentElement.style;
+  root.setProperty('--inset-r', `${(i.right || 0) / dpr}px`);
+  root.setProperty('--inset-b', `${(i.bottom || 0) / dpr}px`);
+}
 
 // HDR target + tone-mapping pass.
 let rt = null;
@@ -118,8 +144,12 @@ function onMessage(msg) {
   switch (msg.type) {
     case 'settings':
       settings = mergeSettings(DEFAULTS, msg.settings);
+      applyCredits();
       resize();
       render();
+      break;
+    case 'insets':
+      setInsets(msg);
       break;
     case 'data':
       refreshData();
@@ -130,7 +160,7 @@ function onMessage(msg) {
   }
 }
 if (host) host.addEventListener('message', (e) => onMessage(e.data));
-window.__earth = { onMessage, settings: () => settings };
+window.__earth = { onMessage, settings: () => settings, camera, controls: () => controls };
 
 // ---- frame ----
 let eph = computeEphemeris(simNow());
@@ -145,12 +175,16 @@ function stormLabel(s) {
 }
 function escapeHtml(t) { return String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
+let lastRender = performance.now();
 function render() {
   if (!rt) return;
   const now = performance.now();
+  const dt = Math.min(0.1, (now - lastRender) / 1000);
+  lastRender = now;
   eph = computeEphemeris(simNow());
   earth.group.rotation.y = eph.earthRotation;
-  frameCamera(camera, settings, eph, width, height);
+  const view = controls ? controls.update(dt, camera, height) : null;
+  frameCamera(camera, settings, eph, width, height, view);
 
   shared.uSunDir.value.copy(eph.sunDir);
   shared.uCamPos.value.copy(camera.position);
@@ -192,7 +226,7 @@ let lastFrame = 0, frames = 0, fpsShown = 0, fpsT = 0;
 function loop(now) {
   if (paused) return;
   requestAnimationFrame(loop);
-  const interval = 1000 / THREE.MathUtils.clamp(settings.fps, 1, 144);
+  const interval = 1000 / THREE.MathUtils.clamp(controls && !query.has('fps') ? Math.max(settings.fps, 60) : settings.fps, 1, 144);
   if (now - lastFrame < interval - 2) return;
   lastFrame = now;
   render();
@@ -211,6 +245,7 @@ function showDebug(now) {
   dbg.textContent = `${simNow().toISOString()}  ${fpsShown} fps  view=${settings.view}  ${width}x${height}@${pixelRatio.toFixed(2)}`;
 }
 
+applyCredits();
 await refreshData(true);
 // Without a host, poll for new data now and then (useful when served from a folder).
 if (!host) setInterval(() => refreshData(), 10 * 60 * 1000);

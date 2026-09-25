@@ -22,6 +22,7 @@ internal sealed class SettingsForm : Form
     private readonly TrackBar _cloudOpacity = Track(20, 100);
     private readonly CheckBox _storms = Check("Label active storms (hurricanes, typhoons, cyclones)");
     private readonly CheckBox _labels = Check("Label the Moon and planets");
+    private readonly CheckBox _credits = Check("Show credits (bottom right)");
     private readonly TrackBar _stars = Track(0, 100);
     private readonly TrackBar _milkyWay = Track(0, 100);
     private readonly TrackBar _exposure = Track(50, 200);
@@ -85,6 +86,7 @@ internal sealed class SettingsForm : Form
 
         Header(grid, "Sky");
         Row(grid, "", _labels);
+        Row(grid, "", _credits);
         Row(grid, "Stars", _stars);
         Row(grid, "Milky Way", _milkyWay);
         Row(grid, "Brightness", _exposure);
@@ -145,6 +147,7 @@ internal sealed class SettingsForm : Form
         _cloudOpacity.Value = Clamp(_cloudOpacity, (int)Math.Round(_s.CloudOpacity * 100));
         _storms.Checked = _s.Storms;
         _labels.Checked = _s.Labels;
+        _credits.Checked = _s.Credits;
         _stars.Value = Clamp(_stars, (int)Math.Round(_s.Stars * 100));
         _milkyWay.Value = Clamp(_milkyWay, (int)Math.Round(_s.MilkyWay * 100));
         _exposure.Value = Clamp(_exposure, (int)Math.Round(_s.Exposure * 100));
@@ -172,6 +175,7 @@ internal sealed class SettingsForm : Form
         _s.CloudOpacity = _cloudOpacity.Value / 100.0;
         _s.Storms = _storms.Checked;
         _s.Labels = _labels.Checked;
+        _s.Credits = _credits.Checked;
         _s.Stars = _stars.Value / 100.0;
         _s.MilkyWay = _milkyWay.Value / 100.0;
         _s.Exposure = _exposure.Value / 100.0;

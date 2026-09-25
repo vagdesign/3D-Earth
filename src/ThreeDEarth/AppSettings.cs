@@ -22,6 +22,7 @@ public sealed class AppSettings
     public double CloudOpacity { get; set; } = 1;
     public bool Storms { get; set; } = true;
     public bool Labels { get; set; } = true;
+    public bool Credits { get; set; } = true;
     public double Stars { get; set; } = 0.6;
     public double MilkyWay { get; set; } = 0.5;
     public double Exposure { get; set; } = 1.0;

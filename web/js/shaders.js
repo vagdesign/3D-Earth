@@ -144,7 +144,7 @@ void main() {
   float nh = max(dot(N, H), 0.0);
   float nv = max(dot(N, V), 0.0);
   float fres = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
-  float glint = pow(nh, 350.0) * 0.9 + pow(nh, 45.0) * 0.035;
+  float glint = pow(nh, 350.0) * 0.6 + pow(nh, 60.0) * 0.018;
   col += water * uSun * sunT * shadow * glint * (0.25 + fres) * step(0.0, muS) * (1.0 - cloud);
 
   // City lights on the night side, hidden by clouds.
@@ -164,17 +164,27 @@ void main() {
 }
 `;
 
+// One shell of the layered (volumetric-looking) cloud deck. Several shells are
+// stacked a few km apart: each shows only cloud thicker than its height in the
+// deck, so thick storm cores stand up above thin cloud, edges get parallax at
+// the limb, and tops cast shadows onto the cloud beside them.
 export const CLOUD_FRAG = /* glsl */ `
 ${COMMON}
 uniform float uOpacity;
 uniform vec2 uCloudTexel;
+uniform float uLayer;        // 0 = base of the deck ... 1 = cloud tops
+uniform float uLayerAlpha;
+uniform float uShadowSteps;
 varying vec2 vUv;
 varying vec3 vN;
 varying vec3 vPos;
 
 void main() {
   float c = cloudAt(vUv);
-  if (c < 0.003) discard;
+  float th = uLayer * 0.6;
+  float d = smoothstep(th, th + 0.28, c);
+  if (d < 0.003) discard;
+
   vec3 N = normalize(vN);
   vec3 V = normalize(uCamPos - vPos);
   vec3 L = uSunDir;
@@ -183,21 +193,39 @@ void main() {
   vec3 east = eastRaw / cosLat;
   vec3 north = cross(N, east);
 
-  // Thicker clouds bulge: use the coverage gradient as a normal map.
-  float cx = cloudRaw(uCloudA, vUv + vec2(uCloudTexel.x, 0.0)) - cloudRaw(uCloudA, vUv - vec2(uCloudTexel.x, 0.0));
-  float cy = cloudRaw(uCloudA, vUv + vec2(0.0, uCloudTexel.y)) - cloudRaw(uCloudA, vUv - vec2(0.0, uCloudTexel.y));
-  vec3 Nc = normalize(N - 0.12 * (cx / cosLat * east + cy * north));
+  // Thicker cloud bulges: the density gradient acts as a height map.
+  vec2 tx = vec2(uCloudTexel.x * 1.5, 0.0), ty = vec2(0.0, uCloudTexel.y * 1.5);
+  float cx = cloudAt(vUv + tx) - cloudAt(vUv - tx);
+  float cy = cloudAt(vUv + ty) - cloudAt(vUv - ty);
+  vec3 Nc = normalize(N - (0.25 + 0.45 * uLayer) * (cx / cosLat * east + cy * north));
 
   float muS = dot(N, L);
-  vec3 sunT = sunTransmittance(1.4, muS);
-  float lit = clamp((dot(Nc, L) + 0.12) / 1.12, 0.0, 1.0) * smoothstep(-0.10, 0.03, muS);
-  vec3 col = vec3(0.93) * uSun * sunT * lit * (0.75 + 0.25 * c);
+  vec3 sunT = sunTransmittance(1.4 + uLayer, muS);
+
+  // Self-shadowing: march toward the Sun across the cloud field. Near the
+  // terminator the Sun is low and towering clouds shade their neighbours.
+  vec2 sunUV = vec2(dot(L, east) / cosLat / (2.0 * PI), dot(L, north) / PI);
+  float occl = 0.0;
+  for (int i = 1; i <= 5; i++) {
+    if (float(i) > uShadowSteps) break;
+    float fi = float(i);
+    occl += smoothstep(th, th + 0.4, cloudAt(vUv + sunUV * fi * 0.0028)) * (1.0 - 0.12 * fi);
+  }
+  float selfShadow = exp(-occl * 0.55 * (1.1 - uLayer));
+
+  float lit = clamp((dot(Nc, L) + 0.15) / 1.15, 0.0, 1.0) * smoothstep(-0.10, 0.03, muS);
+  vec3 col = vec3(0.94) * uSun * sunT * lit * selfShadow * (0.72 + 0.28 * uLayer);
+  // Blue skylight fills the shaded sides so they are not black.
+  col += vec3(0.020, 0.032, 0.055) * uSun * sunT * smoothstep(-0.05, 0.4, muS);
+  // Silver lining when looking toward the Sun through thin edges.
+  float fwd = pow(max(dot(-V, L), 0.0), 8.0);
+  col += uSun * sunT * fwd * (1.0 - d) * 0.6;
 
   float nv = max(dot(N, V), 0.0);
-  vec3 Tv = exp(-TAU_E * chapman(1.4, nv));
+  vec3 Tv = exp(-TAU_E * chapman(1.4 + uLayer, nv));
   col = col * Tv + inscatter(Tv, sunT, dot(-V, L));
 
-  gl_FragColor = vec4(col, c * uOpacity);
+  gl_FragColor = vec4(col, d * uOpacity * uLayerAlpha);
 }
 `;
 

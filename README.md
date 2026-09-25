@@ -2,7 +2,7 @@
 
 A real-time 3D Earth that lives **on your desktop, behind the icons and the taskbar**:
 
-- **Current clouds** from geostationary weather satellites, refreshed every hour and cross-faded in slowly
+- **Current clouds** from geostationary weather satellites, refreshed every hour and cross-faded in slowly, drawn as a layered 3D cloud deck with relief and self-shadowing
 - **Active hurricanes, typhoons and cyclones** with name, category and wind speed (NHC + GDACS)
 - **True day and night**: the Sun's real position, with city lights, a sunset-coloured terminator, ocean glint and atmospheric haze
 - **The Moon and planets at their real positions and true sizes**, with the correct lunar phase, over 5,000 real stars and the Milky Way
@@ -33,11 +33,25 @@ Right-click the globe in the notification area:
 | **View → Moon beside the Earth** | A real vantage point from which the Moon sits in the empty space beside the Earth. North is kept as close to up as possible. |
 | **View → Above my location** | Hovers above your home location, like a geostationary satellite. Day and night sweep across it. |
 | **View → Sunrise behind the Earth** | The Sun just behind the limb: glowing atmosphere, night side with city lights. |
+| **Explore (full screen)** | The same live scene, interactive, on top of everything. Press Esc to go back. |
+| Open in a window | The interactive scene in a normal window. |
 | Moon / planet labels, Storm labels | Toggle the small text labels. |
 | Update weather now | Downloads the newest cloud map and storm list. |
 | Pause | Stops rendering, which uses 0% GPU. |
 | Start with Windows | Adds or removes the per-user autostart entry. |
 | **Settings…** | Location, Earth size and position, Moon size (true size up to 4×), clouds, stars, brightness, quality, frame rate, monitors, power saving, update interval, custom cloud-map URL. |
+
+### Interactive controls (Explore / window)
+
+| Input | Action |
+|---|---|
+| Drag with the left mouse button | Rotate freely around the Earth |
+| W A S D or the arrow keys | Pan |
+| + / −, Page Up / Page Down, mouse wheel | Zoom in / out |
+| R, Home or double-click | Reset the view |
+| Esc | Close Explore |
+
+The wallpaper itself does not react to the mouse, because Windows sends desktop clicks to the icons. Use Explore for that.
 
 To change the static picture Windows shows when 3D Earth is not running, use the normal **Settings → Personalization → Background** page. 3D Earth draws on top of that background and below the icons, and restores it when you exit.
 
@@ -101,6 +115,9 @@ GitHub Actions builds the installer and the portable zip on every push. Pushing 
 
 Logs are written to `%LOCALAPPDATA%\3D Earth\3DEarth.log`. Start with `--devtools` to be able to inspect the page.
 
-## Credits and licences
+## Credits
 
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Created by **Vangelis Makridakis** ([Ax-Easy](https://www.ax-easy.com)) and **[Claude](https://claude.ai)** (Anthropic).
+A small credits line is shown bottom-right. It can be turned off in Settings → Sky.
+
+Third-party components and data: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

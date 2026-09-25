@@ -246,11 +246,12 @@ internal sealed class TrayContext : ApplicationContext
 
     private WallpaperWindow? _preview;
 
-    private async Task ShowPreviewAsync()
+    private async Task ShowPreviewAsync(bool fullscreen = false)
     {
         if (_env == null) return;
-        if (_preview is { IsDisposed: false }) { _preview.Activate(); return; }
-        _preview = new WallpaperWindow(Screen.PrimaryScreen ?? Screen.AllScreens[0], _env, () => _settings, preview: true);
+        if (_preview is { IsDisposed: false }) _preview.Close();
+        var screen = Screen.FromPoint(Cursor.Position);
+        _preview = new WallpaperWindow(screen, _env, () => _settings, preview: true, fullscreen: fullscreen);
         _preview.FormClosed += (_, _) => _preview = null;
         _preview.Show();
         await _preview.InitializeAsync();
@@ -301,6 +302,9 @@ internal sealed class TrayContext : ApplicationContext
 
         _labelsItem = new ToolStripMenuItem("Moon and planet labels", null, (_, _) => Toggle(s => s.Labels = !s.Labels));
         _stormsItem = new ToolStripMenuItem("Storm labels", null, (_, _) => Toggle(s => s.Storms = !s.Storms));
+        menu.Items.Add(new ToolStripMenuItem("Explore (full screen, Esc to exit)", null, (_, _) => _ = ShowPreviewAsync(fullscreen: true)));
+        menu.Items.Add(new ToolStripMenuItem("Open in a window", null, (_, _) => _ = ShowPreviewAsync()));
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_labelsItem);
         menu.Items.Add(_stormsItem);
         menu.Items.Add(new ToolStripMenuItem("Update weather now", null, (_, _) => _ = _data.RefreshAsync()));

@@ -24,17 +24,29 @@ internal sealed class WallpaperWindow : Form
     public event Action? BrowserCrashed;
 
     private readonly bool _preview;
+    private readonly bool _fullscreen;
 
-    public WallpaperWindow(Screen screen, CoreWebView2Environment env, Func<AppSettings> settings, bool preview = false)
+    public WallpaperWindow(Screen screen, CoreWebView2Environment env, Func<AppSettings> settings, bool preview = false, bool fullscreen = false)
     {
         Screen = screen;
         _env = env;
         _settings = settings;
         _preview = preview;
+        _fullscreen = preview && fullscreen;
 
         AutoScaleMode = AutoScaleMode.None;
         BackColor = Color.Black;
-        if (preview)
+        if (_fullscreen)
+        {
+            // Explore: interactive, covers the whole monitor, Esc closes it.
+            Text = "3D Earth";
+            Icon = TrayContext.AppIcon;
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.Manual;
+            Bounds = screen.Bounds;
+            TopMost = true;
+        }
+        else if (preview)
         {
             // Troubleshooting: the same scene in an ordinary window.
             Text = "3D Earth preview";
@@ -91,10 +103,20 @@ internal sealed class WallpaperWindow : Form
             else
                 BeginInvoke(() => { try { core.Reload(); } catch { /* window is going away */ } });
         };
+        // Links (credits) open in the default browser, never inside the wallpaper.
+        core.NewWindowRequested += (_, e) => { e.Handled = true; OpenExternal(e.Uri); };
+        core.NavigationStarting += (_, e) =>
+        {
+            if (!e.Uri.StartsWith(Origin + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                e.Cancel = true;
+                OpenExternal(e.Uri);
+            }
+        };
         core.NavigationCompleted += (_, e) =>
             Log.Info($"[{LogName()}] navigation {(e.IsSuccess ? "ok" : "FAILED: " + e.WebErrorStatus)} (HTTP {e.HttpStatusCode})");
         Log.Info($"[{LogName()}] WebView2 ready; navigating");
-        core.Navigate($"{Origin}/index.html");
+        core.Navigate($"{Origin}/index.html{(_preview ? "?interactive" : "")}");
     }
 
     // Serves ./web and the downloaded data folder (as /data/...) from one origin,
@@ -160,15 +182,33 @@ internal sealed class WallpaperWindow : Form
             {
                 Log.Info($"[{LogName()} page] {doc.RootElement.GetProperty("message").GetString()}");
             }
+            else if (type == "close")
+            {
+                if (_preview) BeginInvoke(Close);
+            }
             else if (type == "ready")
             {
                 Log.Info($"[{LogName()}] scene ready");
                 _ready = true;
+                if (!_preview)
+                {
+                    // Keep on-screen text (credits) clear of the taskbar.
+                    var b = Screen.Bounds;
+                    var w = Screen.WorkingArea;
+                    Post(new { type = "insets", top = w.Top - b.Top, left = w.Left - b.Left, right = b.Right - w.Right, bottom = b.Bottom - w.Bottom });
+                }
                 SendSettings(_settings());
                 Post(new { type = "pause", paused = _paused });
             }
         }
         catch (Exception ex) { Log.Error("Web message", ex); }
+    }
+
+    private static void OpenExternal(string uri)
+    {
+        if (!uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && !uri.StartsWith("http://", StringComparison.OrdinalIgnoreCase)) return;
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri) { UseShellExecute = true }); }
+        catch (Exception ex) { Log.Error("Opening " + uri, ex); }
     }
 
     private string LogName() => _preview ? "preview" : Screen.DeviceName.TrimStart('\\', '.');

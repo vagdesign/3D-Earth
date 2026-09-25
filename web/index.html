@@ -17,6 +17,20 @@
   .lbl.storm i { width: 0.7em; height: 0.7em; border: 1.5px solid currentColor; border-radius: 50%;
     box-shadow: 0 0 6px currentColor; flex: none; }
   .lbl.storm small { opacity: 0.7; font-size: 0.85em; }
+  :root { --inset-r: 0px; --inset-b: 0px; }
+  #credits { position: fixed; right: calc(var(--inset-r) + 16px); bottom: calc(var(--inset-b) + 12px);
+    font: 400 clamp(10px, 0.62vw, 13px)/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    letter-spacing: 0.04em; color: rgba(225, 233, 245, 0.55); text-align: right;
+    text-shadow: 0 0 4px #000; user-select: none; }
+  #credits a { color: rgba(235, 242, 255, 0.78); text-decoration: none; }
+  #credits a:hover { color: #fff; text-decoration: underline; }
+  #credits .dot { opacity: 0.5; margin: 0 0.5em; }
+  #help { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); padding: 8px 16px;
+    border-radius: 999px; background: rgba(8, 12, 20, 0.6); backdrop-filter: blur(6px);
+    font: 500 13px/1.4 "Segoe UI", system-ui, sans-serif; color: rgba(235, 242, 255, 0.85);
+    letter-spacing: 0.02em; pointer-events: none; transition: opacity 1.5s; white-space: nowrap; }
+  #help.fade { opacity: 0; }
+  #help kbd { font: inherit; padding: 0 5px; border: 1px solid rgba(255,255,255,0.3); border-radius: 4px; margin: 0 2px; }
   #debug { position: fixed; left: 8px; bottom: 8px; font: 12px monospace; color: #8f8; white-space: pre; }
 </style>
 <script type="importmap">{ "imports": { "three": "./lib/three.module.js" } }</script>
@@ -25,6 +39,11 @@
 <body>
 <canvas id="scene"></canvas>
 <div id="labels"></div>
+<div id="help" hidden>Drag to rotate · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan · <kbd>+</kbd><kbd>−</kbd> / <kbd>PgUp</kbd><kbd>PgDn</kbd> / wheel zoom · <kbd>R</kbd> reset · <kbd>Esc</kbd> close</div>
+<div id="credits">
+  3D Earth · created by <a href="https://www.ax-easy.com" target="_blank" rel="noopener">Vangelis Makridakis</a> &amp;
+  <a href="https://claude.ai" target="_blank" rel="noopener">Claude</a><span class="dot">·</span><a href="https://www.ax-easy.com" target="_blank" rel="noopener">Ax-Easy</a>
+</div>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

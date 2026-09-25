@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { SPHERE_VERT, EARTH_FRAG, CLOUD_FRAG, HALO_FRAG, CLOUD_ALT, ATM_H } from './shaders.js';
 import { loadFirst, solidTexture } from './textures.js';
 
-// Earth = surface + live cloud shell + atmospheric limb halo.
+// Earth = surface + layered live cloud deck + atmospheric limb halo.
 export function createEarth(shared) {
   const group = new THREE.Group();          // rotates with the Earth (sidereal time)
 
@@ -30,20 +30,40 @@ export function createEarth(shared) {
   const surface = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 128), earthMat);
   group.add(surface);
 
-  const cloudMat = new THREE.ShaderMaterial({
-    vertexShader: SPHERE_VERT,
-    fragmentShader: CLOUD_FRAG,
-    uniforms: {
-      ...shared, ...cloudUniforms,
-      uOpacity: { value: 1 },
-      uCloudTexel: { value: new THREE.Vector2(1 / 2048, 1 / 1024) },
-    },
-    transparent: true,
-    depthWrite: false,
-  });
-  const clouds = new THREE.Mesh(new THREE.SphereGeometry(1 + CLOUD_ALT, 256, 128), cloudMat);
-  clouds.renderOrder = 1;
-  group.add(clouds);
+  // Layered cloud deck (see CLOUD_FRAG). Quality decides how many shells draw.
+  const MAX_LAYERS = 5;
+  const cloudShared = {
+    uOpacity: { value: 1 },
+    uCloudTexel: { value: new THREE.Vector2(1 / 2048, 1 / 1024) },
+    uShadowSteps: { value: 4 },
+  };
+  const cloudLayers = [];
+  for (let i = 0; i < MAX_LAYERS; i++) {
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: SPHERE_VERT,
+      fragmentShader: CLOUD_FRAG,
+      uniforms: { ...shared, ...cloudUniforms, ...cloudShared, uLayer: { value: 0 }, uLayerAlpha: { value: 1 } },
+      transparent: true,
+      depthWrite: false,
+    });
+    const r = 1 + CLOUD_ALT * (0.75 + 0.18 * i);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 256, 128), mat);
+    mesh.renderOrder = 1 + i * 0.01;          // bottom of the deck first
+    group.add(mesh);
+    cloudLayers.push(mesh);
+  }
+  const clouds = cloudLayers[0];
+  let layerCount = -1;
+
+  function setLayerCount(n) {
+    if (n === layerCount) return;
+    layerCount = n;
+    cloudLayers.forEach((m, i) => {
+      m.userData.active = i < n;
+      m.material.uniforms.uLayer.value = n <= 1 ? 0 : i / (n - 1);
+      m.material.uniforms.uLayerAlpha.value = i === 0 ? 1 : 0.88;
+    });
+  }
 
   const haloMat = new THREE.ShaderMaterial({
     vertexShader: SPHERE_VERT,
@@ -88,7 +108,7 @@ export function createEarth(shared) {
       cu.uCloudA.value = tex;
       cu.uCloudB.value = tex;
     }
-    cloudMat.uniforms.uCloudTexel.value.set(1 / tex.image.width, 1 / tex.image.height);
+    cloudShared.uCloudTexel.value.set(1 / tex.image.width, 1 / tex.image.height);
     return true;
   }
 
@@ -106,9 +126,12 @@ export function createEarth(shared) {
         if (old !== cu.uCloudA.value) old.dispose();
       }
     }
-    clouds.visible = settings.clouds;
+    const q = settings.quality;
+    setLayerCount(q === 'low' ? 1 : q === 'high' ? 5 : 3);
+    cloudShared.uShadowSteps.value = q === 'low' ? 2 : q === 'high' ? 5 : 4;
+    cloudLayers.forEach((m) => { m.visible = settings.clouds && m.userData.active; });
     earthMat.uniforms.uCloudsOn.value = settings.clouds ? 1 : 0;
-    cloudMat.uniforms.uOpacity.value = settings.cloudOpacity;
+    cloudShared.uOpacity.value = settings.cloudOpacity;
   }
 
   return { group, surface, clouds, halo, loadBaseTextures, setClouds, update };

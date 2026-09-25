@@ -44,17 +44,19 @@ function solve(camera, d, vcam, dirFn, perpFn) {
 
 let moonChoice = null;
 
-export function frameCamera(camera, settings, eph, width, height) {
+// view (optional, interactive windows only): { zoom, panX, panY, rotation: Quaternion }
+export function frameCamera(camera, settings, eph, width, height, view = null) {
   const aspect = width / height;
-  const fill = THREE.MathUtils.clamp(settings.earthFill, 0.2, 1.2);
+  const zoom = view ? view.zoom : 1;
+  const fill = THREE.MathUtils.clamp(settings.earthFill * zoom, 0.05, 40);
   camera.fov = THREE.MathUtils.clamp(settings.fov, 10, 90);
   camera.aspect = aspect;
   const tanHalf = Math.tan(deg(camera.fov / 2));
   const rho = Math.atan(fill * tanHalf);          // Earth's angular radius
-  const d = 1 / Math.sin(rho);
+  const d = Math.max(1 / Math.sin(rho), 1.06);    // never inside the atmosphere
 
   // Horizontal lens shift, in NDC, of the Earth's centre.
-  const rNdcX = fill / aspect;
+  const rNdcX = Math.min(fill, 1) / aspect;
   const ex = THREE.MathUtils.clamp(settings.earthPosition, -1, 1) * Math.max(0, 1 - rNdcX);
   camera.setViewOffset(width, height, (-ex * width) / 2, 0, width, height);
   camera.near = 0.01;
@@ -132,6 +134,18 @@ export function frameCamera(camera, settings, eph, width, height) {
     if (!solve(camera, d, vcam, () => s.clone(), perp)) homeView();
   } else {
     homeView();
+  }
+  if (view) {
+    if (view.panX || view.panY) {
+      camera.setViewOffset(width, height, (-(ex + view.panX) * width) / 2, (view.panY * height) / 2, width, height);
+      camera.updateProjectionMatrix();
+    }
+    // Free rotation: turn the whole viewpoint around the Earth's centre.
+    if (view.rotation) {
+      camera.position.applyQuaternion(view.rotation);
+      camera.quaternion.premultiply(view.rotation);
+      camera.updateMatrixWorld(true);
+    }
   }
   return { distance: d, angularRadius: rho, centerNdcX: ex };
 }
