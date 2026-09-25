@@ -1,0 +1,10 @@
+{
+  "name": "3d-earth",
+  "private": true,
+  "type": "module",
+  "description": "Live 3D Earth wallpaper for Windows (WebGL scene + WebView2 host)",
+  "scripts": {
+    "serve": "npx http-server web -p 8080 -c-1",
+    "screenshot": "node tools/screenshot.mjs previews"
+  }
+}

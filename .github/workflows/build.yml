@@ -1,0 +1,83 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scene:
+    name: Render scene (headless)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax check
+        run: for f in web/js/*.js; do node --check "$f"; done
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Render previews
+        run: node tools/screenshot.mjs previews "view=moon" "view=home" "view=sunrise" "view=moon&earthPosition=0.6@2560x1080"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: previews
+          path: previews/*.png
+
+  windows:
+    name: Windows app + installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = '0.1.0'
+          if ('${{ github.ref_type }}' -eq 'tag') { $v = '${{ github.ref_name }}'.TrimStart('v') }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Publish (self-contained, win-x64)
+        run: dotnet publish src/ThreeDEarth/ThreeDEarth.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ steps.ver.outputs.version }} -o publish
+
+      - name: Verify output
+        shell: pwsh
+        run: |
+          foreach ($f in 'publish/3DEarth.exe', 'publish/web/index.html', 'publish/web/js/main.js', 'publish/web/assets/earth_day.jpg', 'publish/WebView2Loader.dll') {
+            if (!(Test-Path $f)) { throw "missing $f" }
+          }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc "/DAppVersion=${{ steps.ver.outputs.version }}" "/DSourceDir=..\publish" installer\3DEarth.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - name: Portable zip
+        shell: pwsh
+        run: Compress-Archive -Path publish\* -DestinationPath "out\3DEarth-portable-${{ steps.ver.outputs.version }}-win-x64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 3DEarth-${{ steps.ver.outputs.version }}-win-x64
+          path: out/*
+
+      - name: GitHub release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*

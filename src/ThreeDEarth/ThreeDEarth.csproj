@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>3DEarth</AssemblyName>
+    <RootNamespace>ThreeDEarth</RootNamespace>
+    <Product>3D Earth</Product>
+    <Description>Live 3D Earth wallpaper</Description>
+    <Version>0.1.0</Version>
+    <ApplicationIcon>Earth.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The 3D scene (HTML/JS/textures) ships next to the executable in .\web -->
+    <Content Include="..\..\web\**\*" Exclude="..\..\web\data\**" LinkBase="web" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Earth.ico" LogicalName="Earth.ico" />
+  </ItemGroup>
+
+</Project>

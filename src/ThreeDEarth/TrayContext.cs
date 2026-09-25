@@ -1,0 +1,372 @@
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Win32;
+
+namespace ThreeDEarth;
+
+/// <summary>
+/// Application core: tray icon + menu, one wallpaper window per monitor, a
+/// watchdog that re-attaches after Explorer restarts or display changes, power
+/// saving, and the weather/texture downloader.
+/// </summary>
+internal sealed class TrayContext : ApplicationContext
+{
+    public static Icon AppIcon { get; } = LoadIcon();
+
+    private readonly NotifyIcon _tray;
+    private readonly DataService _data;
+    private readonly List<WallpaperWindow> _windows = [];
+    private readonly DesktopLayer _layer = new();
+    private readonly System.Windows.Forms.Timer _watchdog = new() { Interval = 2000 };
+    private readonly System.Windows.Forms.Timer _rebuildDebounce = new() { Interval = 1500 };
+    private readonly Control _ui = new();
+    private readonly ShellListener _shell;
+    private readonly EventWaitHandle _showSettingsEvent;
+    private readonly RegisteredWaitHandle _showSettingsWait;
+    private AppSettings _settings;
+    private CoreWebView2Environment? _env;
+    private SettingsForm? _settingsForm;
+    private bool _userPaused;
+    private bool _sessionLocked;
+    private bool _building;
+
+    public TrayContext(string[] args)
+    {
+        _ui.CreateControl();   // marshals background events onto the UI thread
+        _settings = AppSettings.Load();
+
+        _tray = new NotifyIcon { Icon = AppIcon, Text = Program.AppName, Visible = true, ContextMenuStrip = BuildMenu() };
+        _tray.DoubleClick += (_, _) => ShowSettings();
+
+        _data = new DataService(() => _settings);
+        _data.DataChanged += () => RunOnUi(() => _windows.ForEach(w => w.NotifyDataChanged()));
+
+        _watchdog.Tick += (_, _) => Watchdog();
+        _rebuildDebounce.Tick += (_, _) => { _rebuildDebounce.Stop(); _ = RebuildAsync(); };
+        SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
+        SystemEvents.SessionSwitch += OnSessionSwitch;
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
+
+        _shell = new ShellListener(() => RunOnUi(() => { Log.Info("Explorer restarted"); ScheduleRebuild(); }));
+
+        _showSettingsEvent = new EventWaitHandle(false, EventResetMode.AutoReset, Program.ShowSettingsEventName);
+        _showSettingsWait = ThreadPool.RegisterWaitForSingleObject(_showSettingsEvent, (_, _) => RunOnUi(ShowSettings), null, -1, false);
+
+        StartupRegistration.Repair();
+        if (!_settings.FirstRunDone)
+        {
+            _settings.FirstRunDone = true;
+            _settings.Save();
+            _tray.ShowBalloonTip(8000, Program.AppName,
+                "Your live Earth wallpaper is running. Right-click the globe in the notification area for views and settings.",
+                ToolTipIcon.Info);
+        }
+
+        _ = StartAsync(args.Contains("--settings"));
+    }
+
+    private static Icon LoadIcon()
+    {
+        using var s = typeof(TrayContext).Assembly.GetManifestResourceStream("Earth.ico");
+        return s != null ? new Icon(s) : SystemIcons.Application;
+    }
+
+    private async Task StartAsync(bool openSettings)
+    {
+        try
+        {
+            string version = CoreWebView2Environment.GetAvailableBrowserVersionString();
+            Log.Info($"Starting; WebView2 runtime {version}; OS {Environment.OSVersion}");
+        }
+        catch (WebView2RuntimeNotFoundException)
+        {
+            var r = MessageBox.Show(
+                "3D Earth needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\nOpen the download page now?",
+                Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (r == DialogResult.Yes)
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://go.microsoft.com/fwlink/p/?LinkId=2124703") { UseShellExecute = true });
+            ExitThread();
+            return;
+        }
+
+        await StartBrowserAsync();
+        await RebuildAsync();
+        _watchdog.Start();
+        _data.Start();
+        if (openSettings) ShowSettings();
+    }
+
+    // ------------------------------------------------------------------ windows
+
+    private void ScheduleRebuild()
+    {
+        _rebuildDebounce.Stop();
+        _rebuildDebounce.Start();
+    }
+
+    private async Task RebuildAsync()
+    {
+        if (_env == null || _building) return;
+        _building = true;
+        try
+        {
+            CloseWindows();
+            if (!_layer.Locate())
+            {
+                Log.Info("Desktop layer not found yet; retrying");
+                ScheduleRebuild();
+                return;
+            }
+
+            var screens = _settings.Monitors == "primary"
+                ? Screen.AllScreens.Where(s => s.Primary)
+                : Screen.AllScreens;
+
+            foreach (var screen in screens)
+            {
+                var w = new WallpaperWindow(screen, _env, () => _settings);
+                w.BrowserCrashed += () => RunOnUi(() => { _ = RestartBrowserAsync(); });
+                _ = w.Handle;                     // create the HWND without showing it on top first
+                _layer.Attach(w.Handle, screen.Bounds);
+                w.Show();
+                _layer.Place(w.Handle, screen.Bounds);
+                _windows.Add(w);
+                await w.InitializeAsync();
+            }
+            Log.Info($"Wallpaper on {_windows.Count} monitor(s)");
+            UpdatePause();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Building wallpaper windows", ex);
+            ScheduleRebuild();
+        }
+        finally { _building = false; }
+    }
+
+    private bool _restarting;
+
+    private async Task RestartBrowserAsync()
+    {
+        if (_restarting) return;
+        _restarting = true;
+        try
+        {
+            await RestartBrowserCoreAsync();
+        }
+        catch (Exception ex) { Log.Error("Restarting WebView2", ex); }
+        finally { _restarting = false; }
+    }
+
+    private async Task RestartBrowserCoreAsync()
+    {
+        Log.Info("WebView2 browser process exited; restarting it");
+        CloseWindows();
+        _env = null;
+        await Task.Delay(3000);
+        await StartBrowserAsync();
+        await RebuildAsync();
+    }
+
+    private async Task StartBrowserAsync()
+    {
+        var options = new CoreWebView2EnvironmentOptions(
+            "--disable-features=CalculateNativeWinOcclusion " +
+            "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding");
+        _env = await CoreWebView2Environment.CreateAsync(null, Paths.WebViewData, options);
+    }
+
+    private void CloseWindows()
+    {
+        foreach (var w in _windows)
+        {
+            try { w.Close(); w.Dispose(); } catch { /* parent may already be gone */ }
+        }
+        _windows.Clear();
+    }
+
+    private void Watchdog()
+    {
+        if (_building || _env == null) return;
+        // Explorer restarted or the desktop layer was recreated -> re-attach.
+        if (!_layer.IsValid || _windows.Any(w => w.IsDisposed || !w.IsHandleCreated || !_layer.Owns(w.Handle)))
+        {
+            Log.Info("Desktop layer changed; re-attaching");
+            _ = RebuildAsync();
+            return;
+        }
+        UpdatePause();
+    }
+
+    private void UpdatePause()
+    {
+        bool globalPause = _userPaused || _sessionLocked || (_settings.PauseOnBattery && CoverageMonitor.OnBattery);
+        foreach (var w in _windows)
+        {
+            bool covered = _settings.PauseWhenCovered && CoverageMonitor.IsCovered(w.Screen);
+            w.SetPaused(globalPause || covered);
+        }
+    }
+
+    // ------------------------------------------------------------------ settings
+
+    private void ApplySettings(AppSettings s)
+    {
+        bool monitorsChanged = s.Monitors != _settings.Monitors;
+        bool qualityChanged = s.Quality != _settings.Quality;
+        bool refreshChanged = s.WeatherRefreshMinutes != _settings.WeatherRefreshMinutes || s.CustomCloudUrl != _settings.CustomCloudUrl;
+        _settings = s;
+        _settings.Save();
+        UpdateMenuChecks();
+
+        if (monitorsChanged) { _ = RebuildAsync(); return; }
+        foreach (var w in _windows) w.SendSettings(_settings);
+        if (qualityChanged) _ = _data.RefreshAsync(forceTextures: true);
+        else if (refreshChanged) _data.Reschedule();
+        UpdatePause();
+    }
+
+    private void ShowSettings()
+    {
+        if (_settingsForm is { IsDisposed: false })
+        {
+            _settingsForm.Activate();
+            return;
+        }
+        _settingsForm = new SettingsForm(_settings, ApplySettings, StatusText, () => _ = _data.RefreshAsync());
+        _settingsForm.FormClosed += (_, _) => _settingsForm = null;
+        _settingsForm.Show();
+        _settingsForm.Activate();
+    }
+
+    private string StatusText()
+    {
+        var parts = new List<string>
+        {
+            $"Showing on {_windows.Count} monitor(s){(_layer.RaisedDesktop ? " (Windows 11 24H2 desktop)" : "")}.",
+            _data.LastCloudUpdate is { } t ? $"Clouds updated {t:t}." : "Clouds: waiting for the first download.",
+            $"Active tropical storms: {_data.LastStormCount}.",
+        };
+        if (!string.IsNullOrEmpty(_data.LastError)) parts.Add("Last error: " + _data.LastError);
+        return string.Join(" ", parts);
+    }
+
+    // ------------------------------------------------------------------ tray menu
+
+    private ToolStripMenuItem? _viewMoon, _viewHome, _viewSunrise, _labelsItem, _stormsItem, _pauseItem, _autostartItem;
+
+    private ContextMenuStrip BuildMenu()
+    {
+        var menu = new ContextMenuStrip();
+        var title = new ToolStripMenuItem(Program.AppName) { Enabled = false };
+        menu.Items.Add(title);
+        menu.Items.Add(new ToolStripSeparator());
+
+        var view = new ToolStripMenuItem("View");
+        _viewMoon = new ToolStripMenuItem("Moon beside the Earth", null, (_, _) => SetView("moon"));
+        _viewHome = new ToolStripMenuItem("Above my location", null, (_, _) => SetView("home"));
+        _viewSunrise = new ToolStripMenuItem("Sunrise behind the Earth", null, (_, _) => SetView("sunrise"));
+        view.DropDownItems.AddRange(new ToolStripItem[] { _viewMoon, _viewHome, _viewSunrise });
+        menu.Items.Add(view);
+
+        _labelsItem = new ToolStripMenuItem("Moon and planet labels", null, (_, _) => Toggle(s => s.Labels = !s.Labels));
+        _stormsItem = new ToolStripMenuItem("Storm labels", null, (_, _) => Toggle(s => s.Storms = !s.Storms));
+        menu.Items.Add(_labelsItem);
+        menu.Items.Add(_stormsItem);
+        menu.Items.Add(new ToolStripMenuItem("Update weather now", null, (_, _) => _ = _data.RefreshAsync()));
+        menu.Items.Add(new ToolStripSeparator());
+        _pauseItem = new ToolStripMenuItem("Pause", null, (_, _) => { _userPaused = !_userPaused; UpdateMenuChecks(); UpdatePause(); });
+        menu.Items.Add(_pauseItem);
+        _autostartItem = new ToolStripMenuItem("Start with Windows", null, (_, _) => { StartupRegistration.Set(!StartupRegistration.IsEnabled); UpdateMenuChecks(); });
+        menu.Items.Add(_autostartItem);
+        menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()) { Font = new Font(menu.Font, FontStyle.Bold) });
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitThread()));
+        menu.Opening += (_, _) => UpdateMenuChecks();
+        return menu;
+    }
+
+    private void UpdateMenuChecks()
+    {
+        if (_viewMoon == null) return;
+        _viewMoon.Checked = _settings.View == "moon";
+        _viewHome!.Checked = _settings.View == "home";
+        _viewSunrise!.Checked = _settings.View == "sunrise";
+        _labelsItem!.Checked = _settings.Labels;
+        _stormsItem!.Checked = _settings.Storms;
+        _pauseItem!.Checked = _userPaused;
+        _autostartItem!.Checked = StartupRegistration.IsEnabled;
+    }
+
+    private void SetView(string view) => Toggle(s => s.View = view);
+
+    private void Toggle(Action<AppSettings> change)
+    {
+        var s = _settings.Clone();
+        change(s);
+        ApplySettings(s);
+    }
+
+    // ------------------------------------------------------------------ system events
+
+    private void OnDisplayChanged(object? sender, EventArgs e) => RunOnUi(ScheduleRebuild);
+
+    private void OnSessionSwitch(object? sender, SessionSwitchEventArgs e) => RunOnUi(() =>
+    {
+        if (e.Reason is SessionSwitchReason.SessionLock or SessionSwitchReason.ConsoleDisconnect or SessionSwitchReason.RemoteDisconnect)
+            _sessionLocked = true;
+        else if (e.Reason is SessionSwitchReason.SessionUnlock or SessionSwitchReason.ConsoleConnect or SessionSwitchReason.RemoteConnect)
+            _sessionLocked = false;
+        UpdatePause();
+    });
+
+    private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e) => RunOnUi(() =>
+    {
+        if (e.Mode == PowerModes.Resume) { ScheduleRebuild(); _ = _data.RefreshAsync(); }
+        UpdatePause();
+    });
+
+    private void RunOnUi(Action a)
+    {
+        if (_ui.IsDisposed) return;
+        if (_ui.InvokeRequired) _ui.BeginInvoke(a);
+        else a();
+    }
+
+    protected override void ExitThreadCore()
+    {
+        _watchdog.Stop();
+        SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
+        SystemEvents.SessionSwitch -= OnSessionSwitch;
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        _showSettingsWait.Unregister(null);
+        _showSettingsEvent.Dispose();
+        _settingsForm?.Close();
+        CloseWindows();
+        DesktopLayer.RefreshStaticWallpaper();
+        _data.Dispose();
+        _shell.DestroyHandle();
+        _tray.Visible = false;
+        _tray.Dispose();
+        _ui.Dispose();
+        base.ExitThreadCore();
+    }
+
+    /// <summary>Hidden top-level window that hears Explorer's "TaskbarCreated" broadcast.</summary>
+    private sealed class ShellListener : NativeWindow
+    {
+        private readonly uint _taskbarCreated = NativeMethods.RegisterWindowMessage("TaskbarCreated");
+        private readonly Action _onRestart;
+
+        public ShellListener(Action onRestart)
+        {
+            _onRestart = onRestart;
+            CreateHandle(new CreateParams { Caption = "3DEarth.ShellListener" });
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == (int)_taskbarCreated) _onRestart();
+            base.WndProc(ref m);
+        }
+    }
+}

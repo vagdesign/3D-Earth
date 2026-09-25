@@ -1,0 +1,8 @@
+bin/
+obj/
+out/
+publish/
+*.user
+.vs/
+web/data/
+node_modules/
