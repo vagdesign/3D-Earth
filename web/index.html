@@ -25,6 +25,9 @@
   #credits a { color: rgba(235, 242, 255, 0.78); text-decoration: none; }
   #credits a:hover { color: #fff; text-decoration: underline; }
   #credits .dot { opacity: 0.5; margin: 0 0.5em; }
+  #credits a.brand { color: #ff8c1a; font-weight: 600; }
+  #credits a.brand:hover { color: #ffa64d; }
+  #fade { position: fixed; inset: 0; background: #000; opacity: 1; pointer-events: none; z-index: 10; }
   #help { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); padding: 8px 16px;
     border-radius: 999px; background: rgba(8, 12, 20, 0.6); backdrop-filter: blur(6px);
     font: 500 13px/1.4 "Segoe UI", system-ui, sans-serif; color: rgba(235, 242, 255, 0.85);
@@ -42,8 +45,9 @@
 <div id="help" hidden>Drag to rotate · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan · <kbd>+</kbd><kbd>−</kbd> / <kbd>PgUp</kbd><kbd>PgDn</kbd> / wheel zoom · <kbd>R</kbd> reset · <kbd>Esc</kbd> close</div>
 <div id="credits">
   3D Earth · created by <a href="https://www.ax-easy.com" target="_blank" rel="noopener">Vangelis Makridakis</a> &amp;
-  <a href="https://claude.ai" target="_blank" rel="noopener">Claude</a><span class="dot">·</span><a href="https://www.ax-easy.com" target="_blank" rel="noopener">Ax-Easy</a>
+  <a href="https://claude.ai" target="_blank" rel="noopener">Claude</a><span class="dot">·</span>by <a class="brand" href="https://www.ax-easy.com" target="_blank" rel="noopener">Ax-Easy</a>
 </div>
+<div id="fade"></div>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

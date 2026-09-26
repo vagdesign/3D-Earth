@@ -45,7 +45,7 @@ jobs:
         id: ver
         shell: pwsh
         run: |
-          $v = '0.4.0'
+          $v = '0.5.0'
           if ('${{ github.ref_type }}' -eq 'tag') { $v = '${{ github.ref_name }}'.TrimStart('v') }
           "version=$v" >> $env:GITHUB_OUTPUT
 
@@ -56,6 +56,27 @@ jobs:
         run: |
           Invoke-WebRequest -Uri 'https://cdn.eso.org/images/large/eso0932a.jpg' -OutFile web/assets/milkyway_eso.jpg -UserAgent '3DEarth-build'
           Get-Item web/assets/milkyway_eso.jpg | Select-Object Name, Length
+
+      # Report whether the optional Earth surface maps are reachable (informational).
+      - name: Check surface map sources
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $urls = @(
+            'https://www.solarsystemscope.com/textures/download/8k_earth_daymap.jpg',
+            'https://www.shadedrelief.com/natural3/ne3_data/8192/textures/2_no_clouds_8k.jpg'
+          )
+          $ids = '73580','73605','73630','73655','73701','73726','73751','73776','73801','73826','73884','73909'
+          for ($m = 1; $m -le 12; $m++) {
+            $mm = '{0:D2}' -f $m
+            $urls += "https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/$($ids[$m-1])/world.topo.bathy.2004$mm.3x21600x10800.jpg"
+          }
+          foreach ($u in $urls) {
+            try {
+              $r = Invoke-WebRequest -Uri $u -Method Head -UserAgent '3DEarth-build' -MaximumRedirection 5
+              "OK   $($r.StatusCode) $($r.Headers['Content-Length']) $u"
+            } catch { "FAIL $($_.Exception.Response.StatusCode.value__) $u" }
+          }
 
       - name: Publish (self-contained, win-x64)
         run: dotnet publish src/ThreeDEarth/ThreeDEarth.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ steps.ver.outputs.version }} -o publish

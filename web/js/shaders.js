@@ -242,7 +242,8 @@ void main() {
   float t = cloudAt(vUv);                          // thickness from the satellite map
   float th = uLayer * 0.55;
   // This shell holds cloud thicker than its height; no cloud where the map has none.
-  float cover = smoothstep(max(th - 0.12, 0.0), th + 0.38, t) * smoothstep(0.0, 0.10, t);
+  float aaw = fwidth(t) * 1.5;                     // widen edges by the pixel footprint (anti-aliasing)
+  float cover = smoothstep(max(th - 0.12, 0.0) - aaw, th + 0.38 + aaw, t) * smoothstep(0.0, 0.10 + aaw, t);
   if (cover < 0.002) discard;
 
   vec3 N = normalize(vN);
@@ -260,7 +261,7 @@ void main() {
   // Density: thick cores stay solid, thin cloud and edges break into cells.
   float dens = clamp(cover * (0.25 + 1.2 * n) - (1.0 - t) * (1.0 - n) * 0.9 * uDetail, 0.0, 1.0);
   float alpha = 1.0 - exp(-4.5 * dens * (0.35 + 0.65 * t));
-  if (alpha < 0.004) discard;
+  if (alpha < 0.002) discard;
 
   // Bump lighting from the combined height (map + detail) via screen-space derivatives.
   float h = (t * 0.55 + n * 0.45 * uDetail) * 0.004;
@@ -274,19 +275,21 @@ void main() {
   vec2 tx = vec2(uCloudTexel.x * 1.5, 0.0), ty = vec2(0.0, uCloudTexel.y * 1.5);
   float cx = cloudAt(vUv + tx) - cloudAt(vUv - tx);
   float cy = cloudAt(vUv + ty) - cloudAt(vUv - ty);
-  Nb = normalize(Nb - (0.15 + 0.25 * uLayer) * (cx / cosLat * east + cy * north));
+  float cosLatC = max(cosLat, 0.3);                // avoid radial streaks at the poles
+  Nb = normalize(Nb - (0.15 + 0.25 * uLayer) * (cx / cosLatC * east + cy * north) * smoothstep(0.05, 0.3, cosLat));
 
   float muS = dot(N, L);
   vec3 sunT = sunTransmittance(1.4 + uLayer, muS);
 
   // Self-shadowing toward the Sun across the cloud field (long shadows near the terminator).
-  vec2 sunUV = vec2(dot(L, east) / cosLat / (2.0 * PI), dot(L, north) / PI);
+  vec2 sunUV = vec2(dot(L, east) / cosLatC / (2.0 * PI), dot(L, north) / PI);
   float occl = 0.0;
   for (int i = 1; i <= 5; i++) {
     if (float(i) > uShadowSteps) break;
     float fi = float(i);
     occl += smoothstep(th, th + 0.4, cloudAt(vUv + sunUV * fi * 0.0028)) * (1.0 - 0.12 * fi);
   }
+  occl *= smoothstep(0.05, 0.3, cosLat);
   float selfShadow = exp(-occl * 0.5 * (1.1 - uLayer));
 
   float lambert = clamp((dot(Nb, L) + 0.1) / 1.1, 0.0, 1.0);
@@ -334,16 +337,26 @@ void main() {
 export const POST_FRAG = /* glsl */ `
 uniform sampler2D tScene;
 uniform float uExposure;
+uniform vec2 uTexel;         // one output pixel in UV
+uniform float uSS;           // 1 when the scene was supersampled
 varying vec2 vUv;
 vec3 aces(vec3 x) {
   const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+vec3 tonemap(vec3 hdr) { return pow(aces(hdr * uExposure), vec3(1.0 / 2.2)); }
 void main() {
-  vec3 c = texture2D(tScene, vUv).rgb * uExposure;
-  c = aces(c);
-  c = pow(c, vec3(1.0 / 2.2));
+  vec3 c;
+  if (uSS > 0.5) {
+    // Box-filter the supersampled image; tone-map before averaging so bright
+    // edges (cloud rims, the limb) resolve smoothly.
+    vec2 o = uTexel * 0.25;
+    c = 0.25 * (tonemap(texture2D(tScene, vUv + vec2(-o.x, -o.y)).rgb) + tonemap(texture2D(tScene, vUv + vec2(o.x, -o.y)).rgb)
+              + tonemap(texture2D(tScene, vUv + vec2(-o.x, o.y)).rgb) + tonemap(texture2D(tScene, vUv + vec2(o.x, o.y)).rgb));
+  } else {
+    c = tonemap(texture2D(tScene, vUv).rgb);
+  }
   c += (hash(gl_FragCoord.xy) - 0.5) / 255.0;   // dither the dark gradients of space
   gl_FragColor = vec4(c, 1.0);
 }

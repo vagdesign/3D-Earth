@@ -30,7 +30,7 @@ internal sealed class DataService : IDisposable
     public DataService(Func<AppSettings> settings)
     {
         _settings = settings;
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(90) };
+        _http = new HttpClient { Timeout = TimeSpan.FromMinutes(6) };
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("3DEarth", "0.1"));
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(+https://github.com/vagdesign/3D-Earth)"));
     }
@@ -77,52 +77,106 @@ internal sealed class DataService : IDisposable
 
     private sealed record TextureSource(string File, int MaxWidth, bool Grayscale, string[] Urls);
 
+    // NASA Blue Marble Next Generation (topography + bathymetry), one map per month of 2004.
+    private static readonly string[] BlueMarbleIds =
+        ["73580", "73605", "73630", "73655", "73701", "73726", "73751", "73776", "73801", "73826", "73884", "73909"];
+
+    /// <summary>Candidate URLs for the Earth surface map chosen in Settings (empty = built-in 4K).</summary>
+    public static (string Id, string[] Urls) SurfaceSource(string choice, int month)
+    {
+        switch (choice)
+        {
+            case "bluemarble":
+            {
+                string mm = month.ToString("00", CultureInfo.InvariantCulture);
+                string dir = $"https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/{BlueMarbleIds[month - 1]}";
+                return ($"bluemarble-{mm}", [
+                    $"{dir}/world.topo.bathy.2004{mm}.3x21600x10800.jpg",
+                    $"{dir}/world.topo.bathy.2004{mm}.3x5400x2700.jpg",
+                ]);
+            }
+            case "naturalearth":
+                return ("naturalearth", ["https://www.shadedrelief.com/natural3/ne3_data/8192/textures/2_no_clouds_8k.jpg"]);
+            case "builtin":
+                return ("builtin", []);
+            default:
+                return ("sss", ["https://www.solarsystemscope.com/textures/download/8k_earth_daymap.jpg"]);
+        }
+    }
+
     private async Task<bool> EnsureTexturesAsync(JsonObject manifest, bool force)
     {
-        string quality = _settings().Quality;
-        int earthWidth = quality == "high" ? 8192 : 4096;
+        var s = _settings();
+        int earthWidth = s.Quality == "high" ? 8192 : 4096;
+        bool changed = false;
+
+        // Night lights and the Moon (once per quality level).
         string wanted = $"v1-{earthWidth}";
-        if (!force && manifest["texturesSet"]?.GetValue<string>() == wanted) return false;
-
-        var sources = new[]
+        if (force || manifest["texturesSet"]?.GetValue<string>() != wanted)
         {
-            // Solar System Scope textures (CC BY 4.0), based on NASA imagery.
-            new TextureSource("earth_day.jpg", earthWidth, false, [
-                "https://www.solarsystemscope.com/textures/download/8k_earth_daymap.jpg",
-            ]),
-            new TextureSource("earth_lights.jpg", earthWidth, true, [
-                "https://www.solarsystemscope.com/textures/download/8k_earth_nightmap.jpg",
-            ]),
-            new TextureSource("moon.jpg", 2048, false, [
-                "https://www.solarsystemscope.com/textures/download/2k_moon.jpg",
-                "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_poles_1k.jpg",
-            ]),
-        };
-
-        bool any = false;
-        foreach (var src in sources)
-        {
-            foreach (var url in src.Urls)
+            var sources = new[]
             {
-                try
-                {
-                    var bytes = await DownloadImageAsync(url, minBytes: 50_000);
-                    if (bytes == null) continue;
-                    SaveImage(bytes, Path.Combine(Paths.Data, src.File), src.MaxWidth, src.Grayscale);
-                    any = true;
-                    Log.Info($"Texture {src.File} <- {url}");
-                    break;
-                }
-                catch (Exception ex) { Log.Error($"Texture {src.File} from {url}", ex); }
+                // Solar System Scope textures (CC BY 4.0), based on NASA imagery.
+                new TextureSource("earth_lights.jpg", earthWidth, true, [
+                    "https://www.solarsystemscope.com/textures/download/8k_earth_nightmap.jpg",
+                ]),
+                new TextureSource("moon.jpg", 2048, false, [
+                    "https://www.solarsystemscope.com/textures/download/2k_moon.jpg",
+                    "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_poles_1k.jpg",
+                ]),
+            };
+            bool any = false;
+            foreach (var src in sources)
+                any |= await DownloadFirstAsync(src.Urls, Path.Combine(Paths.Data, src.File), src.MaxWidth, src.Grayscale);
+            if (any)
+            {
+                manifest["texturesSet"] = wanted;
+                changed = true;
             }
         }
 
-        if (any)
+        // The Earth surface map chosen in Settings; each one is kept, so switching back is instant.
+        var (id, urls) = SurfaceSource(s.SurfaceTexture, DateTime.UtcNow.Month);
+        string surfaceKey = $"{id}-{earthWidth}";
+        if (force || manifest["surfaceSet"]?.GetValue<string>() != surfaceKey)
         {
-            manifest["texturesSet"] = wanted;
-            manifest["textures"] = DateTime.UtcNow.ToString("o");
+            string rel = "";
+            if (urls.Length > 0)
+            {
+                rel = $"textures/{surfaceKey}.jpg";
+                string full = Path.Combine(Paths.Data, "textures", $"{surfaceKey}.jpg");
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                if (!File.Exists(full) && !await DownloadFirstAsync(urls, full, earthWidth, false))
+                {
+                    LastError = $"Could not download the \"{s.SurfaceTexture}\" surface map; keeping the current one.";
+                    return changed;
+                }
+            }
+            manifest["surfaceSet"] = surfaceKey;
+            manifest["dayTexture"] = rel;
+            changed = true;
+            Log.Info($"Surface map: {(rel.Length > 0 ? rel : "built-in")}");
         }
-        return any;
+
+        if (changed) manifest["textures"] = DateTime.UtcNow.ToString("o");
+        return changed;
+    }
+
+    private async Task<bool> DownloadFirstAsync(string[] urls, string path, int maxWidth, bool grayscale)
+    {
+        foreach (var url in urls)
+        {
+            try
+            {
+                var bytes = await DownloadImageAsync(url, minBytes: 50_000);
+                if (bytes == null) continue;
+                SaveImage(bytes, path, maxWidth, grayscale);
+                Log.Info($"Texture {Path.GetFileName(path)} <- {url} ({bytes.Length / 1024} KB)");
+                return true;
+            }
+            catch (Exception ex) { Log.Error($"Texture {Path.GetFileName(path)} from {url}", ex); }
+        }
+        return false;
     }
 
     // ---------------------------------------------------------------- clouds
@@ -408,6 +462,52 @@ internal sealed class DataService : IDisposable
 
     /// <summary>Decodes, optionally downsizes / converts to grayscale, and saves as JPEG.</summary>
     private static void SaveImage(byte[] bytes, string path, int maxWidth, bool grayscale)
+    {
+        try
+        {
+            SaveImageWic(bytes, path, maxWidth, grayscale);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("WIC decode failed; falling back to GDI+", ex);
+            SaveImageGdi(bytes, path, maxWidth, grayscale);
+        }
+    }
+
+    // Windows Imaging Component: JPEGs are scaled while decoding, so a 21600 px
+    // NASA map never needs a full-size bitmap in memory.
+    private static void SaveImageWic(byte[] bytes, string path, int maxWidth, bool grayscale)
+    {
+        using var probe = new MemoryStream(bytes);
+        var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(probe,
+            System.Windows.Media.Imaging.BitmapCreateOptions.DelayCreation | System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreColorProfile,
+            System.Windows.Media.Imaging.BitmapCacheOption.None);
+        int width = decoder.Frames[0].PixelWidth;
+
+        var bi = new System.Windows.Media.Imaging.BitmapImage();
+        bi.BeginInit();
+        bi.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+        bi.CreateOptions = System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreColorProfile;
+        bi.StreamSource = new MemoryStream(bytes);
+        if (width > maxWidth) bi.DecodePixelWidth = maxWidth;
+        bi.EndInit();
+        bi.Freeze();
+
+        System.Windows.Media.Imaging.BitmapSource src = bi;
+        if (grayscale)
+        {
+            var gray = new System.Windows.Media.Imaging.FormatConvertedBitmap(bi, System.Windows.Media.PixelFormats.Gray8, null, 0);
+            gray.Freeze();
+            src = gray;
+        }
+        var enc = new System.Windows.Media.Imaging.JpegBitmapEncoder { QualityLevel = 92 };
+        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(src));
+        using var ms = new MemoryStream();
+        enc.Save(ms);
+        WriteAtomic(path, ms.ToArray());
+    }
+
+    private static void SaveImageGdi(byte[] bytes, string path, int maxWidth, bool grayscale)
     {
         using var input = new MemoryStream(bytes);
         using var src = Image.FromStream(input, useEmbeddedColorManagement: false, validateImageData: true);

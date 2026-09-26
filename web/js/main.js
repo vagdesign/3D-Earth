@@ -118,7 +118,7 @@ const post = new THREE.Mesh(
   new THREE.ShaderMaterial({
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: POST_FRAG,
-    uniforms: { tScene: { value: null }, uExposure: { value: 1 } },
+    uniforms: { tScene: { value: null }, uExposure: { value: 1 }, uTexel: { value: new THREE.Vector2(1, 1) }, uSS: { value: 0 } },
     depthTest: false, depthWrite: false,
   }),
 );
@@ -133,8 +133,14 @@ function resize() {
   width = window.innerWidth; height = window.innerHeight;
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(width, height, false);
-  const samples = settings.quality === 'low' ? 0 : 4;
-  const w = Math.max(1, Math.round(width * pixelRatio)), h = Math.max(1, Math.round(height * pixelRatio));
+  // Anti-aliasing: MSAA 0/2/4/8; "8" also supersamples 1.5x, which smooths the
+  // shader-level (cloud) edges MSAA cannot reach.
+  const aa = Math.round(settings.antialias);
+  const samples = Math.min(aa >= 8 ? 8 : aa >= 4 ? 4 : aa >= 2 ? 2 : 0, renderer.capabilities.maxSamples || 4);
+  const ss = aa >= 8 ? 1.5 : 1;
+  const w = Math.max(1, Math.round(width * pixelRatio * ss)), h = Math.max(1, Math.round(height * pixelRatio * ss));
+  post.material.uniforms.uTexel.value.set(1 / Math.max(1, width * pixelRatio), 1 / Math.max(1, height * pixelRatio));
+  post.material.uniforms.uSS.value = ss > 1 ? 1 : 0;
   if (!rt || rt.width !== w || rt.height !== h || rt.samples !== samples) {
     if (rt) rt.dispose();
     rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples, depthBuffer: true });
@@ -158,7 +164,7 @@ async function refreshData(first = false) {
     if (urls.length) await earth.setClouds(urls);
   }
   if (first || !manifest || (m && m.textures !== manifest.textures)) {
-    await earth.loadBaseTextures(DATA);
+    await earth.loadBaseTextures(DATA, m && typeof m.dayTexture === 'string' ? m.dayTexture : 'earth_day.jpg');
     await moon.loadTexture(DATA);
   }
   const st = await fetchJson(`${DATA}storms.json`);
@@ -318,16 +324,38 @@ let lastFrame = 0, frames = 0, fpsShown = 0, fpsT = 0;
 function loop(now) {
   if (paused) return;
   requestAnimationFrame(loop);
-  const interval = 1000 / THREE.MathUtils.clamp(controls && !query.has('fps') ? Math.max(settings.fps, 60) : settings.fps, 1, 144);
-  if (now - lastFrame < interval - 2) return;
-  lastFrame = now;
+  const interval = 1000 / THREE.MathUtils.clamp(controls && !query.has('fps') ? Math.max(settings.fps, 60) : settings.fps, 1, 240);
+  const elapsed = now - lastFrame;
+  if (elapsed < interval - 1) return;
+  // Keep the cadence exact (e.g. 120 fps on a 144 Hz monitor) instead of drifting.
+  lastFrame = elapsed > interval * 3 ? now : now - (elapsed % interval);
   render();
   frames++;
+}
+// Subtle fade in from black: at start-up and whenever the wallpaper becomes
+// visible again (a full-screen app closed, the PC was unlocked, ...).
+const fader = document.getElementById('fade');
+function fadeIn(ms = 1400) {
+  if (!fader) return;
+  fader.style.transition = 'none';
+  fader.style.opacity = '1';
+  void fader.offsetWidth;                         // restart the transition
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    fader.style.transition = `opacity ${ms}ms cubic-bezier(0.25, 0.1, 0.25, 1)`;
+    fader.style.opacity = '0';
+  }));
 }
 function setPaused(p) {
   if (p === paused) return;
   paused = p;
-  if (!paused) requestAnimationFrame(loop);
+  if (paused) {
+    // Hidden behind something anyway: go black now, so resuming fades in.
+    if (fader) { fader.style.transition = 'none'; fader.style.opacity = '1'; }
+  } else {
+    lastFrame = 0;
+    requestAnimationFrame(loop);
+    fadeIn(1100);
+  }
 }
 
 let dbg = null;
@@ -339,6 +367,8 @@ function showDebug(now) {
 
 applyCredits();
 await refreshData(true);
+render();
+fadeIn(1800);
 if (controls) showHelp();
 // Without a host, poll for new data now and then (useful when served from a folder).
 if (!host) setInterval(() => refreshData(), 10 * 60 * 1000);

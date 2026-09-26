@@ -12,6 +12,8 @@
 
 **Downloaded at runtime** (not redistributed with the app):
 - Solar System Scope textures — CC BY 4.0, https://www.solarsystemscope.com/textures/
+- NASA Blue Marble Next Generation (Reto Stöckli, NASA Earth Observatory) — public domain, https://visibleearth.nasa.gov/collection/1484/blue-marble
+- Natural Earth III (Tom Patterson, shadedrelief.com) — public domain, https://www.shadedrelief.com/natural3/
 - Live cloud maps by Matt Eason — https://github.com/matteason/live-cloud-maps (see that project for terms; source imagery © EUMETSAT, NOAA, JMA)
 - NOAA National Hurricane Center storm data — public domain
 - GDACS (Global Disaster Alert and Coordination System, European Commission JRC / UN OCHA) — used with attribution

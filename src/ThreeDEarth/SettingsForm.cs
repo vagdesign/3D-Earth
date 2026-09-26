@@ -39,7 +39,13 @@ internal sealed class SettingsForm : Form
     private readonly CheckBox _useCustomTime = Check("Show a specific date and time");
     private readonly DateTimePicker _customTime = new() { Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd  HH:mm", Width = 170 };
     private readonly ComboBox _quality = Combo("Low (integrated graphics)", "Medium", "High (8K textures)");
-    private readonly ComboBox _fps = Combo("10", "15", "24", "30", "60");
+    private readonly ComboBox _fps = Combo("10", "15", "24", "30", "60", "120", "144");
+    private readonly ComboBox _aa = Combo("Off", "2×", "4×", "8× + supersampling (sharpest)");
+    private readonly ComboBox _surface = Combo(
+        "Solar System Scope 8K (NASA Blue Marble)",
+        "NASA Blue Marble – this month (seasons, 8K from 21600 px)",
+        "Natural Earth III 8K (shaded relief)",
+        "Built-in 4K (offline)");
     private readonly ComboBox _monitors = Combo("All monitors", "Primary monitor only");
     private readonly CheckBox _pauseCovered = Check("Pause when a maximised or full-screen app covers the desktop");
     private readonly CheckBox _pauseBattery = Check("Pause on battery power");
@@ -100,6 +106,7 @@ internal sealed class SettingsForm : Form
         Row(grid, "Moon size", _moon);
 
         grid = NewTab("Surface");
+        Row(grid, "Earth surface map", _surface);
         Row(grid, "Land brightness (diffuse)", _land);
         Row(grid, "Ocean reflection", _glint);
         Row(grid, "Ocean: calm mirror ↔ rough", _rough);
@@ -132,6 +139,7 @@ internal sealed class SettingsForm : Form
 
         grid = NewTab("Performance");
         Row(grid, "Quality", _quality);
+        Row(grid, "Anti-aliasing", _aa);
         Row(grid, "Frame rate (fps)", _fps);
         Row(grid, "Show on", _monitors);
         Row(grid, "", _pauseCovered);
@@ -208,6 +216,8 @@ internal sealed class SettingsForm : Form
         _customTime.Value = hasTime ? t.ToLocalTime() : DateTime.Now;
         _customTime.Enabled = _useCustomTime.Checked;
         _quality.SelectedIndex = _s.Quality switch { "low" => 0, "high" => 2, _ => 1 };
+        _aa.SelectedIndex = _s.Antialias >= 8 ? 3 : _s.Antialias >= 4 ? 2 : _s.Antialias >= 2 ? 1 : 0;
+        _surface.SelectedIndex = _s.SurfaceTexture switch { "bluemarble" => 1, "naturalearth" => 2, "builtin" => 3, _ => 0 };
         _fps.SelectedItem = _s.Fps.ToString(CultureInfo.InvariantCulture);
         if (_fps.SelectedIndex < 0) _fps.SelectedIndex = 3;
         _monitors.SelectedIndex = _s.Monitors == "primary" ? 1 : 0;
@@ -249,6 +259,8 @@ internal sealed class SettingsForm : Form
             ? DateTime.SpecifyKind(_customTime.Value, DateTimeKind.Local).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)
             : "";
         _s.Quality = _quality.SelectedIndex switch { 0 => "low", 2 => "high", _ => "medium" };
+        _s.Antialias = _aa.SelectedIndex switch { 1 => 2, 2 => 4, 3 => 8, _ => 0 };
+        _s.SurfaceTexture = _surface.SelectedIndex switch { 1 => "bluemarble", 2 => "naturalearth", 3 => "builtin", _ => "sss" };
         _s.Fps = int.Parse((string)_fps.SelectedItem!, CultureInfo.InvariantCulture);
         _s.Monitors = _monitors.SelectedIndex == 1 ? "primary" : "all";
         _s.PauseWhenCovered = _pauseCovered.Checked;

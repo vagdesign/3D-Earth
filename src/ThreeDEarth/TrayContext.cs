@@ -232,6 +232,7 @@ internal sealed class TrayContext : ApplicationContext
     {
         bool monitorsChanged = s.Monitors != _settings.Monitors;
         bool qualityChanged = s.Quality != _settings.Quality;
+        bool surfaceChanged = s.SurfaceTexture != _settings.SurfaceTexture;
         bool refreshChanged = s.WeatherRefreshMinutes != _settings.WeatherRefreshMinutes || s.CustomCloudUrl != _settings.CustomCloudUrl;
         _settings = s;
         _settings.Save();
@@ -240,6 +241,7 @@ internal sealed class TrayContext : ApplicationContext
         if (monitorsChanged) { _ = RebuildAsync(); return; }
         foreach (var w in _windows) w.SendSettings(_settings);
         if (qualityChanged) _ = _data.RefreshAsync(forceTextures: true);
+        else if (surfaceChanged) _ = _data.RefreshAsync();
         else if (refreshChanged) _data.Reschedule();
         UpdatePause();
     }

@@ -26,6 +26,7 @@ export const DEFAULTS = {
   oceanRoughness: 0.35,  // 0 = mirror-calm sea, 1 = rough/matte
   haze: 1.0,             // atmospheric haze over the surface
   quality: 'medium',     // 'low' | 'medium' | 'high'
+  antialias: 4,          // 0 | 2 | 4 | 8 (8 = MSAA 8x + 1.5x supersampling)
   fps: 30,
   renderScale: 1,
   motion: 'live',        // 'live' | 'spin' (orbit from my location) | 'timelapse' | 'daylapse' (time-lapse above my location)

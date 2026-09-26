@@ -38,6 +38,8 @@ public sealed class AppSettings
     public double TimeSpeed { get; set; } = 60;
     public string CustomTime { get; set; } = "";         // ISO 8601 UTC, empty = now
     public string Quality { get; set; } = "medium";      // low | medium | high
+    public int Antialias { get; set; } = 4;              // 0 | 2 | 4 | 8 (8 = + supersampling)
+    public string SurfaceTexture { get; set; } = "sss";  // sss | bluemarble | naturalearth | builtin
     public int Fps { get; set; } = 30;
     public double RenderScale { get; set; } = 1;
 

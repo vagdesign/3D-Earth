@@ -88,9 +88,11 @@ export function createEarth(shared) {
   let liveTex = null;          // latest downloaded map
   let externalPair = false;    // true while the 24 h history loop drives the clouds
 
-  async function loadBaseTextures(dataBase) {
+  // dayFile: the surface map chosen in Settings ('' = built-in 4K).
+  async function loadBaseTextures(dataBase, dayFile = 'earth_day.jpg') {
+    const dayUrls = dayFile ? [`${dataBase}${dayFile}`, 'assets/earth_day.jpg'] : ['assets/earth_day.jpg'];
     const [day, lights, bump, water] = await Promise.all([
-      loadFirst([`${dataBase}earth_day.jpg`, 'assets/earth_day.jpg'], { srgb: true }),
+      loadFirst(dayUrls, { srgb: true }),
       loadFirst([`${dataBase}earth_lights.jpg`, 'assets/earth_lights.jpg']),
       loadFirst(['assets/earth_bump.jpg']),
       loadFirst(['assets/earth_water.jpg']),
