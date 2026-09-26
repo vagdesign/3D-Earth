@@ -49,6 +49,8 @@ public sealed class AppSettings
     public bool PauseOnBattery { get; set; } = true;
     public int WeatherRefreshMinutes { get; set; } = 30;
     public string CustomCloudUrl { get; set; } = "";
+    public bool AutoCheckUpdates { get; set; } = true;
+    public bool AutoInstallUpdates { get; set; }
     public bool FirstRunDone { get; set; }
 
     public static readonly JsonSerializerOptions Json = new()

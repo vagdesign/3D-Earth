@@ -4,7 +4,7 @@
 #define AppName "3D Earth"
 #define AppExe "3DEarth.exe"
 #ifndef AppVersion
-  #define AppVersion "0.5.1"
+  #define AppVersion "0.6.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\publish"
@@ -49,6 +49,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Start 3D Earth now"; Flags: nowait postinstall skipifsilent
+; Silent updates started by the app itself: start the new version again.
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C taskkill /IM {#AppExe} /F"; Flags: runhidden; RunOnceId: "Stop3DEarth"

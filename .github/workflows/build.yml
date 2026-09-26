@@ -45,7 +45,7 @@ jobs:
         id: ver
         shell: pwsh
         run: |
-          $v = '0.5.1'
+          $v = '0.6.0'
           if ('${{ github.ref_type }}' -eq 'tag') { $v = '${{ github.ref_name }}'.TrimStart('v') }
           "version=$v" >> $env:GITHUB_OUTPUT
 

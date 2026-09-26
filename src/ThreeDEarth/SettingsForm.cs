@@ -54,7 +54,10 @@ internal sealed class SettingsForm : Form
     private readonly CheckBox _autostart = Check("Start with Windows");
     private readonly Label _statusLabel = new() { AutoSize = true, ForeColor = SystemColors.GrayText, MaximumSize = new Size(560, 0) };
 
-    public SettingsForm(AppSettings current, Action<AppSettings> apply, Func<string> status, Action refreshWeather)
+    private readonly CheckBox _autoCheck = Check("Check for updates automatically");
+    private readonly CheckBox _autoInstall = Check("Install updates automatically (no question asked)");
+
+    public SettingsForm(AppSettings current, Action<AppSettings> apply, Func<string> status, Action refreshWeather, Action checkUpdates)
     {
         _s = current.Clone();
         _apply = apply;
@@ -145,6 +148,17 @@ internal sealed class SettingsForm : Form
         Row(grid, "", _pauseCovered);
         Row(grid, "", _pauseBattery);
         Row(grid, "", _autostart);
+
+        grid = NewTab("Updates");
+        Row(grid, "Installed version", new Label { Text = UpdateService.CurrentVersion.ToString(3), AutoSize = true, Margin = new Padding(0, 6, 0, 0) });
+        Row(grid, "", _autoCheck);
+        Row(grid, "", _autoInstall);
+        var checkNow = new Button { Text = "Check for updates now", AutoSize = true };
+        checkNow.Click += (_, _) => checkUpdates();
+        Row(grid, "", checkNow);
+        var releases = new LinkLabel { Text = "All releases", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
+        releases.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo($"https://github.com/{UpdateService.FeedRepo}/releases") { UseShellExecute = true });
+        Row(grid, "", releases);
 
         var refreshNow = new Button { Text = "Update weather now", AutoSize = true };
         refreshNow.Click += (_, _) => { _refreshWeather(); _statusLabel.Text = "Downloading…"; };
@@ -275,6 +289,8 @@ internal sealed class SettingsForm : Form
         _refresh.Value = Math.Clamp(_s.WeatherRefreshMinutes, 15, 720);
         _cloudUrl.Text = _s.CustomCloudUrl;
         _autostart.Checked = StartupRegistration.IsEnabled;
+        _autoCheck.Checked = _s.AutoCheckUpdates;
+        _autoInstall.Checked = _s.AutoInstallUpdates;
     }
 
     private void Commit(bool save = true)
@@ -316,6 +332,8 @@ internal sealed class SettingsForm : Form
         _s.PauseOnBattery = _pauseBattery.Checked;
         _s.WeatherRefreshMinutes = (int)_refresh.Value;
         _s.CustomCloudUrl = _cloudUrl.Text.Trim();
+        _s.AutoCheckUpdates = _autoCheck.Checked;
+        _s.AutoInstallUpdates = _autoInstall.Checked;
         if (!save) return;
         StartupRegistration.Set(_autostart.Checked);
         _apply(_s.Clone());

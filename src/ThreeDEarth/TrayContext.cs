@@ -14,6 +14,9 @@ internal sealed class TrayContext : ApplicationContext
 
     private readonly NotifyIcon _tray;
     private readonly DataService _data;
+    private readonly UpdateService _updates = new();
+    private ToolStripMenuItem? _updateItem;
+    private bool _installing;
     private readonly List<WallpaperWindow> _windows = [];
     private readonly DesktopLayer _layer = new();
     private readonly System.Windows.Forms.Timer _watchdog = new() { Interval = 2000 };
@@ -95,6 +98,8 @@ internal sealed class TrayContext : ApplicationContext
         await RebuildAsync();
         _watchdog.Start();
         _data.Start();
+        _updates.UpdateAvailable += r => RunOnUi(() => OnUpdateAvailable(r));
+        if (_settings.AutoCheckUpdates) _updates.Start();
         if (openSettings) ShowSettings();
     }
 
@@ -236,6 +241,7 @@ internal sealed class TrayContext : ApplicationContext
         bool refreshChanged = s.WeatherRefreshMinutes != _settings.WeatherRefreshMinutes || s.CustomCloudUrl != _settings.CustomCloudUrl;
         _settings = s;
         _settings.Save();
+        if (_settings.AutoCheckUpdates) _updates.Start(); else _updates.Stop();
         UpdateMenuChecks();
 
         if (monitorsChanged) { _ = RebuildAsync(); return; }
@@ -266,10 +272,83 @@ internal sealed class TrayContext : ApplicationContext
             _settingsForm.Activate();
             return;
         }
-        _settingsForm = new SettingsForm(_settings, ApplySettings, StatusText, () => _ = _data.RefreshAsync());
+        _settingsForm = new SettingsForm(_settings, ApplySettings, StatusText, () => _ = _data.RefreshAsync(),
+                                         () => _ = CheckForUpdatesInteractiveAsync());
         _settingsForm.FormClosed += (_, _) => _settingsForm = null;
         _settingsForm.Show();
         _settingsForm.Activate();
+    }
+
+    // ------------------------------------------------------------------ updates
+
+    private void OnUpdateAvailable(UpdateService.Release r)
+    {
+        if (_updateItem != null)
+        {
+            _updateItem.Text = $"Install update {r.Version.ToString(3)}…";
+            _updateItem.Font = new Font(_updateItem.Font, FontStyle.Bold);
+        }
+        if (_settings.AutoInstallUpdates && UpdateService.IsInstalled)
+        {
+            _ = InstallUpdateAsync(r, ask: false);
+            return;
+        }
+        _tray.BalloonTipClicked -= OnUpdateBalloonClicked;
+        _tray.BalloonTipClicked += OnUpdateBalloonClicked;
+        _tray.ShowBalloonTip(10000, $"{Program.AppName} {r.Version.ToString(3)} is available",
+            "Click here, or right-click the globe → Install update.", ToolTipIcon.Info);
+    }
+
+    private void OnUpdateBalloonClicked(object? sender, EventArgs e)
+    {
+        _tray.BalloonTipClicked -= OnUpdateBalloonClicked;
+        if (_updates.Available is { } r) _ = InstallUpdateAsync(r, ask: true);
+    }
+
+    private async Task UpdateMenuClickedAsync()
+    {
+        if (_updates.Available is { } known) { await InstallUpdateAsync(known, ask: true); return; }
+        await CheckForUpdatesInteractiveAsync();
+    }
+
+    /// <summary>"Check now" from the menu or Settings: always tells the user the outcome.</summary>
+    public async Task CheckForUpdatesInteractiveAsync()
+    {
+        var r = await _updates.CheckAsync();
+        if (r != null) { await InstallUpdateAsync(r, ask: true); return; }
+        if (!string.IsNullOrEmpty(_updates.LastError))
+            MessageBox.Show(_updates.LastError, Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        else
+            MessageBox.Show($"You have the latest version ({UpdateService.CurrentVersion.ToString(3)}).", Program.AppName,
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private async Task InstallUpdateAsync(UpdateService.Release r, bool ask)
+    {
+        if (_installing) return;
+        if (!UpdateService.IsInstalled)
+        {
+            // Portable copy: there is no installation to update; open the download page.
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(r.PageUrl) { UseShellExecute = true });
+            return;
+        }
+        if (ask)
+        {
+            string notes = r.Notes.Length > 600 ? r.Notes[..600] + "…" : r.Notes;
+            var answer = MessageBox.Show(
+                $"Install {Program.AppName} {r.Version.ToString(3)} now?\n(You have {UpdateService.CurrentVersion.ToString(3)}.)\n\n" +
+                "The wallpaper closes for a few seconds and starts again by itself.\n\n" + notes,
+                Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (answer != DialogResult.Yes) return;
+        }
+        _installing = true;
+        string original = _tray.Text;
+        var progress = new Progress<int>(p => _tray.Text = $"{Program.AppName}: downloading update {p}%");
+        bool ok = await _updates.InstallAsync(r, progress);
+        _installing = false;
+        _tray.Text = original;
+        if (ok) ExitThread();   // the installer replaces the files and restarts the app
+        else MessageBox.Show(_updates.LastError, Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     private string StatusText()
@@ -281,7 +360,11 @@ internal sealed class TrayContext : ApplicationContext
             $"Active tropical storms: {_data.LastStormCount}.",
             $"Cloud history: {_data.HistoryCount} map(s) over {_data.HistoryHours:0.#} h (the 24 h loop needs about an hour or more).",
         };
+        parts.Add(_updates.Available is { } up
+            ? $"Update {up.Version.ToString(3)} available."
+            : _updates.LastCheck is { } lc ? $"Version {UpdateService.CurrentVersion.ToString(3)} is up to date (checked {lc:t})." : $"Version {UpdateService.CurrentVersion.ToString(3)}.");
         if (!string.IsNullOrEmpty(_data.LastError)) parts.Add("Last error: " + _data.LastError);
+        if (!string.IsNullOrEmpty(_updates.LastError)) parts.Add(_updates.LastError);
         return string.Join(" ", parts);
     }
 
@@ -337,6 +420,8 @@ internal sealed class TrayContext : ApplicationContext
         trouble.DropDownItems.Add(new ToolStripMenuItem("Open log file", null, (_, _) =>
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Paths.LogFile) { UseShellExecute = true })));
         menu.Items.Add(trouble);
+        _updateItem = new ToolStripMenuItem("Check for updates", null, (_, _) => _ = UpdateMenuClickedAsync());
+        menu.Items.Add(_updateItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitThread()));
         menu.Opening += (_, _) => UpdateMenuChecks();
@@ -407,6 +492,7 @@ internal sealed class TrayContext : ApplicationContext
         CloseWindows();
         DesktopLayer.RefreshStaticWallpaper();
         _data.Dispose();
+        _updates.Dispose();
         _shell.DestroyHandle();
         _tray.Visible = false;
         _tray.Dispose();
