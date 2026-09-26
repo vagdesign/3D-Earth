@@ -31,8 +31,9 @@ internal sealed class DataService : IDisposable
     {
         _settings = settings;
         _http = new HttpClient { Timeout = TimeSpan.FromMinutes(6) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("3DEarth", "0.1"));
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(+https://github.com/vagdesign/3D-Earth)"));
+        // Browser-like user agent: some map hosts refuse unknown clients.
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd(
+            $"Mozilla/5.0 (Windows NT 10.0; Win64; x64) 3DEarth/{UpdateService.CurrentVersion.ToString(3)} (+https://github.com/vagdesign/3D-Earth)");
     }
 
     public void Start()

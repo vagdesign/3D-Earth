@@ -73,8 +73,10 @@ jobs:
           }
           foreach ($u in $urls) {
             try {
-              $r = Invoke-WebRequest -Uri $u -Method Head -UserAgent '3DEarth-build' -MaximumRedirection 5
-              "OK   $($r.StatusCode) $($r.Headers['Content-Length']) $u"
+              # Same user agent as the app; a ranged GET works where HEAD is refused.
+              $r = Invoke-WebRequest -Uri $u -Headers @{ Range = 'bytes=0-1023' } -MaximumRedirection 5 `
+                     -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 3DEarth/0.6 (+https://github.com/vagdesign/3D-Earth)'
+              "OK   $($r.StatusCode) $($r.Headers['Content-Range']) $u"
             } catch { "FAIL $($_.Exception.Response.StatusCode.value__) $u" }
           }
 

@@ -28,6 +28,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- UseWPF drops System.Net.Http from the implicit usings; bring it back. -->
+    <Using Include="System.Net.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The 3D scene (HTML/JS/textures) ships next to the executable in .\web -->
     <Content Include="..\..\web\**\*" Exclude="..\..\web\data\**" LinkBase="web" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <EmbeddedResource Include="Earth.ico" LogicalName="Earth.ico" />
