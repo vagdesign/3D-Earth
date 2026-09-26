@@ -2,7 +2,7 @@
 
 A real-time 3D Earth that lives **on your desktop, behind the icons and the taskbar**:
 
-- **Current clouds** from geostationary weather satellites, refreshed every hour and cross-faded in slowly, drawn as a layered 3D cloud deck with relief and self-shadowing
+- **Current clouds** from geostationary weather satellites, refreshed every hour and cross-faded in slowly, drawn as a layered 3D cloud deck. Procedural billows add detail from continent scale down to a few km, with relief lighting and self-shadowing
 - **Active hurricanes, typhoons and cyclones** with name, category and wind speed (NHC + GDACS)
 - **True day and night**: the Sun's real position, with city lights, a sunset-coloured terminator, ocean glint and atmospheric haze
 - **The Moon and planets at their real positions and true sizes**, with the correct lunar phase, over 5,000 real stars and the Milky Way
@@ -37,7 +37,7 @@ Right-click the globe in the notification area:
 | Open in a window | The interactive scene in a normal window. |
 | Moon / planet labels, Storm labels | Toggle the small text labels. |
 | Update weather now | Downloads the newest cloud map and storm list. |
-| **Motion** | *Real time*, *Spin 360° from my location* (one turn per minute by default), or *Time-lapse*. The speed and a specific date/time are in Settings. |
+| **Motion** | *Real time*, *Spin 360° from my location* (one turn per minute by default), *Time-lapse*, or *Day & night time-lapse above my location*. During a time-lapse the clouds of the last 24 hours are replayed in a loop, in step with day and night. The app keeps every cloud map it downloads for 24 h, so the loop fills in over the first day. The speed and a specific date/time are in Settings. |
 | Pause | Stops rendering, which uses 0% GPU. |
 | Start with Windows | Adds or removes the per-user autostart entry. |
 | **Settings…** | Tabs for view, surface (land brightness, ocean reflection and roughness, haze), motion and time, weather, sky and performance. Includes location, Earth size and position, Moon size (true size up to 4×), clouds, stars, brightness, quality, frame rate, monitors, power saving, update interval, custom cloud-map URL. |

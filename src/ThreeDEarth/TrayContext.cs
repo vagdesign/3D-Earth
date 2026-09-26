@@ -277,6 +277,7 @@ internal sealed class TrayContext : ApplicationContext
             $"Showing on {_windows.Count} monitor(s){(_layer.RaisedDesktop ? " (Windows 11 24H2 desktop)" : "")}.",
             _data.LastCloudUpdate is { } t ? $"Clouds updated {t:t}." : "Clouds: waiting for the first download.",
             $"Active tropical storms: {_data.LastStormCount}.",
+            $"Cloud history: {_data.HistoryCount} map(s) over {_data.HistoryHours:0.#} h (the 24 h loop needs about an hour or more).",
         };
         if (!string.IsNullOrEmpty(_data.LastError)) parts.Add("Last error: " + _data.LastError);
         return string.Join(" ", parts);
@@ -284,7 +285,7 @@ internal sealed class TrayContext : ApplicationContext
 
     // ------------------------------------------------------------------ tray menu
 
-    private ToolStripMenuItem? _motionLive, _motionSpin, _motionLapse;
+    private ToolStripMenuItem? _motionLive, _motionSpin, _motionLapse, _motionDayLapse;
     private ToolStripMenuItem? _viewMoon, _viewHome, _viewSunrise, _labelsItem, _stormsItem, _pauseItem, _autostartItem;
 
     private ContextMenuStrip BuildMenu()
@@ -305,7 +306,8 @@ internal sealed class TrayContext : ApplicationContext
         _motionLive = new ToolStripMenuItem("Real time", null, (_, _) => Toggle(s => s.Motion = "live"));
         _motionSpin = new ToolStripMenuItem("Spin 360° from my location", null, (_, _) => Toggle(s => s.Motion = "spin"));
         _motionLapse = new ToolStripMenuItem("Time-lapse", null, (_, _) => Toggle(s => s.Motion = "timelapse"));
-        motion.DropDownItems.AddRange(new ToolStripItem[] { _motionLive, _motionSpin, _motionLapse });
+        _motionDayLapse = new ToolStripMenuItem("Day && night time-lapse above my location", null, (_, _) => Toggle(s => s.Motion = "daylapse"));
+        motion.DropDownItems.AddRange(new ToolStripItem[] { _motionLive, _motionSpin, _motionLapse, _motionDayLapse });
         menu.Items.Add(motion);
 
         _labelsItem = new ToolStripMenuItem("Moon and planet labels", null, (_, _) => Toggle(s => s.Labels = !s.Labels));
@@ -349,6 +351,7 @@ internal sealed class TrayContext : ApplicationContext
         _motionLive!.Checked = _settings.Motion == "live";
         _motionSpin!.Checked = _settings.Motion == "spin";
         _motionLapse!.Checked = _settings.Motion == "timelapse";
+        _motionDayLapse!.Checked = _settings.Motion == "daylapse";
         _stormsItem!.Checked = _settings.Storms;
         _pauseItem!.Checked = _userPaused;
         _autostartItem!.Checked = StartupRegistration.IsEnabled;

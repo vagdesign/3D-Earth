@@ -20,6 +20,9 @@ public sealed class AppSettings
     public double MoonScale { get; set; } = 1;
     public bool Clouds { get; set; } = true;
     public double CloudOpacity { get; set; } = 1;
+    public double CloudCover { get; set; } = 1;
+    public double CloudDetail { get; set; } = 1;
+    public bool CloudLoop { get; set; } = true;
     public bool Storms { get; set; } = true;
     public bool Labels { get; set; } = true;
     public bool Credits { get; set; } = true;
@@ -30,7 +33,7 @@ public sealed class AppSettings
     public double OceanReflection { get; set; } = 1.0;
     public double OceanRoughness { get; set; } = 0.35;
     public double Haze { get; set; } = 1.0;
-    public string Motion { get; set; } = "live";         // live | spin | timelapse
+    public string Motion { get; set; } = "live";         // live | spin | timelapse | daylapse
     public double SpinSeconds { get; set; } = 60;
     public double TimeSpeed { get; set; } = 60;
     public string CustomTime { get; set; } = "";         // ISO 8601 UTC, empty = now
@@ -42,7 +45,7 @@ public sealed class AppSettings
     public string Monitors { get; set; } = "all";        // all | primary
     public bool PauseWhenCovered { get; set; } = true;
     public bool PauseOnBattery { get; set; } = true;
-    public int WeatherRefreshMinutes { get; set; } = 60;
+    public int WeatherRefreshMinutes { get; set; } = 30;
     public string CustomCloudUrl { get; set; } = "";
     public bool FirstRunDone { get; set; }
 

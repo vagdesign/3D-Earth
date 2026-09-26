@@ -12,6 +12,9 @@ export const DEFAULTS = {
   moonScale: 1,          // 1 = true size
   clouds: true,
   cloudOpacity: 1,
+  cloudCover: 1,         // thickness from the satellite map (<1 thinner, >1 thicker)
+  cloudDetail: 1,        // procedural billow detail, 0..1
+  cloudLoop: true,       // time-lapse: replay the stored last 24 h of clouds
   storms: true,
   labels: true,
   credits: true,
@@ -25,7 +28,7 @@ export const DEFAULTS = {
   quality: 'medium',     // 'low' | 'medium' | 'high'
   fps: 30,
   renderScale: 1,
-  motion: 'live',        // 'live' | 'spin' (orbit from my location) | 'timelapse'
+  motion: 'live',        // 'live' | 'spin' (orbit from my location) | 'timelapse' | 'daylapse' (time-lapse above my location)
   spinSeconds: 60,       // 'spin': seconds per 360°
   timeSpeed: 60,         // 'timelapse': simulated seconds per real second
   customTime: '',        // ISO date/time to show instead of now ('' = live)

@@ -37,3 +37,16 @@ export async function fetchJson(url) {
     return r.ok ? await r.json() : null;
   } catch { return null; }
 }
+
+// Decodes off the main thread (no frame hitch) - used for the cloud-history loop.
+const bitmapLoader = new THREE.ImageBitmapLoader();
+bitmapLoader.setOptions({ imageOrientation: 'flipY' });
+export function loadBitmapTexture(url) {
+  return new Promise((resolve) => {
+    bitmapLoader.load(url, (bmp) => {
+      const t = new THREE.Texture(bmp);
+      t.flipY = false;
+      resolve(prepare(t));
+    }, undefined, () => resolve(null));
+  });
+}

@@ -24,6 +24,8 @@ internal sealed class DataService : IDisposable
     public DateTime? LastCloudUpdate { get; private set; }
     public int LastStormCount { get; private set; }
     public string LastError { get; private set; } = "";
+    public int HistoryCount { get; private set; }
+    public double HistoryHours { get; private set; }
 
     public DataService(Func<AppSettings> settings)
     {
@@ -57,6 +59,7 @@ internal sealed class DataService : IDisposable
             changed |= await EnsureTexturesAsync(manifest, forceTextures);
             changed |= await UpdateCloudsAsync(manifest);
             changed |= await UpdateStormsAsync(manifest);
+            WriteHistory(manifest, ReadHistory(manifest));
 
             manifest["updated"] = DateTime.UtcNow.ToString("o");
             WriteManifest(manifest);
@@ -155,6 +158,7 @@ internal sealed class DataService : IDisposable
                 manifest["clouds"] = DateTime.UtcNow.ToString("o");
                 manifest["cloudsFile"] = "clouds.jpg";
                 manifest["cloudsSource"] = url;
+                AddToHistory(bytes, manifest);
                 LastCloudUpdate = DateTime.Now;
                 Log.Info("Clouds updated from " + url);
                 return true;
@@ -166,6 +170,76 @@ internal sealed class DataService : IDisposable
             }
         }
         return false;
+    }
+
+    // ---------------------------------------------------------------- 24 h history
+
+    private static readonly TimeSpan HistoryWindow = TimeSpan.FromHours(26);
+
+    /// <summary>
+    /// Keeps every new cloud map for ~24 h (data/history) so time-lapse modes can
+    /// replay the real last day of weather in a loop.
+    /// </summary>
+    private void AddToHistory(byte[] bytes, JsonObject manifest)
+    {
+        try
+        {
+            string dir = Path.Combine(Paths.Data, "history");
+            Directory.CreateDirectory(dir);
+            var now = DateTime.UtcNow;
+            string name = $"clouds-{now:yyyyMMdd-HHmm}.jpg";
+            SaveImage(bytes, Path.Combine(dir, name), 4096, grayscale: true);
+
+            var entries = ReadHistory(manifest);
+            entries.RemoveAll(e => e.File == "history/" + name);
+            entries.Add(("history/" + name, now));
+            WriteHistory(manifest, entries);
+        }
+        catch (Exception ex) { Log.Error("Cloud history", ex); }
+    }
+
+    private static List<(string File, DateTime T)> ReadHistory(JsonObject manifest)
+    {
+        var list = new List<(string, DateTime)>();
+        if (manifest["history"] is JsonArray arr)
+        {
+            foreach (var n in arr)
+            {
+                string? file = n?["file"]?.ToString();
+                if (file != null && DateTime.TryParse(n?["t"]?.ToString(), CultureInfo.InvariantCulture,
+                        DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var t))
+                    list.Add((file, t));
+            }
+        }
+        return list;
+    }
+
+    private void WriteHistory(JsonObject manifest, List<(string File, DateTime T)> entries)
+    {
+        string dir = Path.Combine(Paths.Data, "history");
+        Directory.CreateDirectory(dir);
+        var cutoff = DateTime.UtcNow - HistoryWindow;
+        var keep = entries
+            .Where(e => e.T >= cutoff && File.Exists(Path.Combine(Paths.Data, e.File)))
+            .OrderBy(e => e.T)
+            .ToList();
+
+        // Delete anything no longer referenced.
+        var keepNames = new HashSet<string>(keep.Select(e => Path.GetFileName(e.File)), StringComparer.OrdinalIgnoreCase);
+        foreach (var f in Directory.GetFiles(dir, "clouds-*.jpg"))
+            if (!keepNames.Contains(Path.GetFileName(f))) { try { File.Delete(f); } catch { /* in use; next time */ } }
+
+        var arr = new JsonArray();
+        foreach (var e in keep)
+            arr.Add(new JsonObject { ["t"] = e.T.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture), ["file"] = e.File });
+        manifest["history"] = arr;
+        UpdateHistoryStats(keep);
+    }
+
+    private void UpdateHistoryStats(List<(string File, DateTime T)> keep)
+    {
+        HistoryCount = keep.Count;
+        HistoryHours = keep.Count >= 2 ? (keep[^1].T - keep[0].T).TotalHours : 0;
     }
 
     // ---------------------------------------------------------------- storms

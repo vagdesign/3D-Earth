@@ -30,7 +30,10 @@ internal sealed class SettingsForm : Form
     private readonly TrackBar _glint = Track(0, 200);
     private readonly TrackBar _rough = Track(0, 100);
     private readonly TrackBar _haze = Track(0, 200);
-    private readonly ComboBox _motion = Combo("Real time", "Spin around the Earth from my location", "Time-lapse");
+    private readonly ComboBox _motion = Combo("Real time", "Spin around the Earth from my location", "Time-lapse", "Day & night time-lapse above my location");
+    private readonly CheckBox _cloudLoop = Check("During time-lapse, replay the clouds of the last 24 hours");
+    private readonly TrackBar _cloudCover = Track(40, 200);
+    private readonly TrackBar _cloudDetail = Track(0, 100);
     private readonly NumericUpDown _spin = Num(10, 3600, 0);
     private readonly NumericUpDown _speed = Num(1, 100000, 0);
     private readonly CheckBox _useCustomTime = Check("Show a specific date and time");
@@ -106,6 +109,7 @@ internal sealed class SettingsForm : Form
         Row(grid, "Motion", _motion);
         Row(grid, "Spin: seconds per 360°", _spin);
         Row(grid, "Time-lapse speed (×)", _speed);
+        Row(grid, "", _cloudLoop);
         Row(grid, "", _useCustomTime);
         Row(grid, "Date and time (local)", _customTime);
         _useCustomTime.CheckedChanged += (_, _) => _customTime.Enabled = _useCustomTime.Checked;
@@ -113,6 +117,8 @@ internal sealed class SettingsForm : Form
         grid = NewTab("Weather");
         Row(grid, "", _clouds);
         Row(grid, "Cloud opacity", _cloudOpacity);
+        Row(grid, "Cloud thickness", _cloudCover);
+        Row(grid, "Cloud detail (billows)", _cloudDetail);
         Row(grid, "", _storms);
         Row(grid, "Update every (minutes)", _refresh);
         Row(grid, "Cloud map URL", _cloudUrl);
@@ -191,7 +197,10 @@ internal sealed class SettingsForm : Form
         _glint.Value = Clamp(_glint, (int)Math.Round(_s.OceanReflection * 100));
         _rough.Value = Clamp(_rough, (int)Math.Round(_s.OceanRoughness * 100));
         _haze.Value = Clamp(_haze, (int)Math.Round(_s.Haze * 100));
-        _motion.SelectedIndex = _s.Motion switch { "spin" => 1, "timelapse" => 2, _ => 0 };
+        _motion.SelectedIndex = _s.Motion switch { "spin" => 1, "timelapse" => 2, "daylapse" => 3, _ => 0 };
+        _cloudLoop.Checked = _s.CloudLoop;
+        _cloudCover.Value = Clamp(_cloudCover, (int)Math.Round(_s.CloudCover * 100));
+        _cloudDetail.Value = Clamp(_cloudDetail, (int)Math.Round(_s.CloudDetail * 100));
         _spin.Value = (decimal)Math.Clamp(_s.SpinSeconds, 10, 3600);
         _speed.Value = (decimal)Math.Clamp(_s.TimeSpeed, 1, 100000);
         bool hasTime = DateTime.TryParse(_s.CustomTime, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var t);
@@ -230,7 +239,10 @@ internal sealed class SettingsForm : Form
         _s.OceanReflection = _glint.Value / 100.0;
         _s.OceanRoughness = _rough.Value / 100.0;
         _s.Haze = _haze.Value / 100.0;
-        _s.Motion = _motion.SelectedIndex switch { 1 => "spin", 2 => "timelapse", _ => "live" };
+        _s.Motion = _motion.SelectedIndex switch { 1 => "spin", 2 => "timelapse", 3 => "daylapse", _ => "live" };
+        _s.CloudLoop = _cloudLoop.Checked;
+        _s.CloudCover = _cloudCover.Value / 100.0;
+        _s.CloudDetail = _cloudDetail.Value / 100.0;
         _s.SpinSeconds = (double)_spin.Value;
         _s.TimeSpeed = (double)_speed.Value;
         _s.CustomTime = _useCustomTime.Checked

@@ -7,7 +7,7 @@ import { createMoon } from './moon.js';
 import { frameCamera } from './framing.js';
 import { Labels, hiddenByEarth } from './labels.js';
 import { POST_FRAG } from './shaders.js';
-import { setMaxAnisotropy, fetchJson } from './textures.js';
+import { setMaxAnisotropy, fetchJson, loadBitmapTexture } from './textures.js';
 import { createControls } from './controls.js';
 
 const host = window.chrome && window.chrome.webview ? window.chrome.webview : null;
@@ -29,11 +29,13 @@ function initialSimTime() {
   const c = settings.customTime ? Date.parse(settings.customTime) : NaN;
   return Number.isFinite(c) ? c : Date.now();
 }
-const timeSpeed = () => (settings.motion === 'timelapse' || query.has('timeSpeed') ? settings.timeSpeed : 1);
+const isLapse = () => settings.motion === 'timelapse' || settings.motion === 'daylapse';
+const timeSpeed = () => (isLapse() || query.has('timeSpeed') ? settings.timeSpeed : 1);
 const simNow = () => new Date(timeBase.sim + (Date.now() - timeBase.wall) * timeSpeed());
 function rebaseTime(prev) {
   const customChanged = prev.customTime !== settings.customTime;
-  const backToLive = prev.motion === 'timelapse' && settings.motion !== 'timelapse';
+  const wasLapse = prev.motion === 'timelapse' || prev.motion === 'daylapse';
+  const backToLive = wasLapse && !isLapse();
   const sim = customChanged || backToLive ? initialSimTime() : simNow().getTime();
   timeBase = { wall: Date.now(), sim };
 }
@@ -165,6 +167,53 @@ async function refreshData(first = false) {
   render();
 }
 
+// ---- 24 h cloud loop: during time-lapse, replay the stored history ----
+const loopCache = new Map();   // file -> { tex }
+function historyFrames() {
+  const h = manifest && Array.isArray(manifest.history) ? manifest.history : [];
+  return h.map((f) => ({ t: Date.parse(f.t), file: f.file }))
+    .filter((f) => Number.isFinite(f.t) && f.file)
+    .sort((a, b) => a.t - b.t);
+}
+function frameTexture(f) {
+  let e = loopCache.get(f.file);
+  if (!e) {
+    e = { tex: null };
+    loopCache.set(f.file, e);
+    loadBitmapTexture(`${DATA}${f.file}`).then((t) => {
+      if (!t) return;
+      t.userData.keep = true;
+      if (loopCache.get(f.file) === e) e.tex = t; else t.dispose();
+    });
+  }
+  return e.tex;
+}
+// Returns the (possibly looped) simulated time in ms.
+function updateCloudLoop(simMs) {
+  const frames = historyFrames();
+  const span = frames.length >= 2 ? frames[frames.length - 1].t - frames[0].t : 0;
+  if (!settings.cloudLoop || !isLapse() || span < 45 * 60 * 1000) {
+    earth.useLiveClouds();
+    return simMs;
+  }
+  const t0 = frames[0].t;
+  const tt = t0 + ((((simMs - t0) % span) + span) % span);
+  let i = frames.length - 2;
+  for (let k = 0; k < frames.length - 1; k++) if (tt < frames[k + 1].t) { i = k; break; }
+  const a = frames[i], b = frames[i + 1], next = frames[(i + 2) % frames.length];
+  const ta = frameTexture(a), tb = frameTexture(b);
+  frameTexture(next);                                  // prefetch
+  if (ta && tb) earth.setCloudPair(ta, tb, THREE.MathUtils.clamp((tt - a.t) / Math.max(1, b.t - a.t), 0, 1));
+  const keep = new Set([a.file, b.file, next.file]);
+  for (const [k, e] of loopCache) {
+    if (!keep.has(k) && e.tex && e.tex !== earth.clouds.material.uniforms.uCloudA.value && e.tex !== earth.clouds.material.uniforms.uCloudB.value) {
+      e.tex.dispose();
+      loopCache.delete(k);
+    }
+  }
+  return tt;
+}
+
 // ---- host messages ----
 function onMessage(msg) {
   if (!msg || typeof msg !== 'object') return;
@@ -211,10 +260,11 @@ function render() {
   const now = performance.now();
   const dt = Math.min(0.1, (now - lastRender) / 1000);
   lastRender = now;
-  eph = computeEphemeris(simNow());
+  eph = computeEphemeris(new Date(updateCloudLoop(simNow().getTime())));
   earth.group.rotation.y = eph.earthRotation;
   let view = controls ? controls.update(dt, camera, height) : null;
   let frameSettings = settings;
+  if (settings.motion === 'daylapse') frameSettings = { ...settings, view: 'home' };
   if (settings.motion === 'spin') {
     // Start above my location and orbit westward once per spinSeconds, so the
     // Earth appears to turn eastward beneath the camera.

@@ -59,9 +59,12 @@ uniform sampler2D uCloudB;
 uniform float uCloudMix;
 uniform float uFlowT;
 
+uniform float uCloudCover;   // setting: <1 thinner, >1 thicker
+// Satellite brightness -> cloud thickness 0..1 (linear above the haze floor,
+// so thin cloud stays thin instead of saturating to white).
 float cloudRaw(sampler2D t, vec2 uv) {
   float v = texture2D(t, uv).r;
-  return smoothstep(0.06, 0.82, v);
+  return clamp((v - 0.10) / 0.80 * uCloudCover, 0.0, 1.0);
 }
 // Gentle two-phase flow so the cloud field breathes between satellite updates.
 float cloudAt(vec2 uv) {
@@ -82,8 +85,10 @@ export const SPHERE_VERT = /* glsl */ `
 varying vec2 vUv;
 varying vec3 vN;
 varying vec3 vPos;
+varying vec3 vObjN;          // Earth-fixed direction (procedural cloud detail)
 void main() {
   vUv = uv;
+  vObjN = normal;
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vPos = wp.xyz;
   vN = normalize(mat3(modelMatrix) * normal);
@@ -179,6 +184,11 @@ void main() {
 // stacked a few km apart: each shows only cloud thicker than its height in the
 // deck, so thick storm cores stand up above thin cloud, edges get parallax at
 // the limb, and tops cast shadows onto the cloud beside them.
+// One shell of the layered cloud deck. The satellite map says where cloud is
+// and how thick; multi-octave procedural noise (anchored to the Earth, octaves
+// faded out below pixel size) adds the billows and cells a 5-10 km/pixel
+// satellite map cannot show; bump lighting from that detail gives every puff
+// light and shadow, like photos from the ISS.
 export const CLOUD_FRAG = /* glsl */ `
 ${COMMON}
 uniform float uOpacity;
@@ -186,15 +196,54 @@ uniform vec2 uCloudTexel;
 uniform float uLayer;        // 0 = base of the deck ... 1 = cloud tops
 uniform float uLayerAlpha;
 uniform float uShadowSteps;
+uniform float uOctaves;      // procedural detail octaves (quality)
+uniform float uDetail;       // setting: 0 = satellite map only ... 1 = full detail
 varying vec2 vUv;
 varying vec3 vN;
 varying vec3 vPos;
+varying vec3 vObjN;
+
+float hash3(vec3 p) {
+  p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float vnoise(vec3 x) {
+  vec3 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x),
+                 mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x),
+                 mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+const mat3 OCT_ROT = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
+
+// Billowy fbm from continent-scale bands down to ~5 km cells. Octaves smaller
+// than a pixel fade out, so there is no sparkle and no shimmer while moving.
+float cloudDetail(vec3 dir, float px) {
+  vec3 p = dir * 14.0 + vec3(uLayer * 7.3, uLayer * 3.1, 0.0);
+  float freq = 14.0, amp = 0.55, sum = 0.0, norm = 0.0;
+  for (int i = 0; i < 10; i++) {
+    if (float(i) >= uOctaves) break;
+    float fade = 1.0 - smoothstep(0.10, 0.30, freq * px);
+    if (fade <= 0.0) break;
+    float n = vnoise(p);
+    n = 1.0 - abs(2.0 * n - 1.0);          // billows
+    sum += amp * fade * n;
+    norm += amp * fade;
+    p = OCT_ROT * p * 2.13 + vec3(1.7, 9.2, 3.1);   // rotate each octave: no grid artefacts
+    freq *= 2.13;
+    amp *= 0.58;
+  }
+  return norm > 0.0 ? sum / norm : 0.6;
+}
 
 void main() {
-  float c = cloudAt(vUv);
-  float th = uLayer * 0.6;
-  float d = smoothstep(th, th + 0.28, c);
-  if (d < 0.003) discard;
+  float t = cloudAt(vUv);                          // thickness from the satellite map
+  float th = uLayer * 0.55;
+  // This shell holds cloud thicker than its height; no cloud where the map has none.
+  float cover = smoothstep(max(th - 0.12, 0.0), th + 0.38, t) * smoothstep(0.0, 0.10, t);
+  if (cover < 0.002) discard;
 
   vec3 N = normalize(vN);
   vec3 V = normalize(uCamPos - vPos);
@@ -204,17 +253,33 @@ void main() {
   vec3 east = eastRaw / cosLat;
   vec3 north = cross(N, east);
 
-  // Thicker cloud bulges: the density gradient acts as a height map.
+  vec3 dir = normalize(vObjN);
+  float px = length(fwidth(dir));
+  float n = mix(0.6, cloudDetail(dir, px), uDetail);
+
+  // Density: thick cores stay solid, thin cloud and edges break into cells.
+  float dens = clamp(cover * (0.25 + 1.2 * n) - (1.0 - t) * (1.0 - n) * 0.9 * uDetail, 0.0, 1.0);
+  float alpha = 1.0 - exp(-4.5 * dens * (0.35 + 0.65 * t));
+  if (alpha < 0.004) discard;
+
+  // Bump lighting from the combined height (map + detail) via screen-space derivatives.
+  float h = (t * 0.55 + n * 0.45 * uDetail) * 0.004;
+  vec3 dpdx = dFdx(vPos), dpdy = dFdy(vPos);
+  float dhx = dFdx(h), dhy = dFdy(h);
+  vec3 r1 = cross(dpdy, N), r2 = cross(N, dpdx);
+  float det = dot(dpdx, r1);
+  vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
+  vec3 Nb = normalize(abs(det) * N - grad * 5.0);
+  // Large-scale relief from the satellite map as well.
   vec2 tx = vec2(uCloudTexel.x * 1.5, 0.0), ty = vec2(0.0, uCloudTexel.y * 1.5);
   float cx = cloudAt(vUv + tx) - cloudAt(vUv - tx);
   float cy = cloudAt(vUv + ty) - cloudAt(vUv - ty);
-  vec3 Nc = normalize(N - (0.25 + 0.45 * uLayer) * (cx / cosLat * east + cy * north));
+  Nb = normalize(Nb - (0.15 + 0.25 * uLayer) * (cx / cosLat * east + cy * north));
 
   float muS = dot(N, L);
   vec3 sunT = sunTransmittance(1.4 + uLayer, muS);
 
-  // Self-shadowing: march toward the Sun across the cloud field. Near the
-  // terminator the Sun is low and towering clouds shade their neighbours.
+  // Self-shadowing toward the Sun across the cloud field (long shadows near the terminator).
   vec2 sunUV = vec2(dot(L, east) / cosLat / (2.0 * PI), dot(L, north) / PI);
   float occl = 0.0;
   for (int i = 1; i <= 5; i++) {
@@ -222,21 +287,24 @@ void main() {
     float fi = float(i);
     occl += smoothstep(th, th + 0.4, cloudAt(vUv + sunUV * fi * 0.0028)) * (1.0 - 0.12 * fi);
   }
-  float selfShadow = exp(-occl * 0.55 * (1.1 - uLayer));
+  float selfShadow = exp(-occl * 0.5 * (1.1 - uLayer));
 
-  float lit = clamp((dot(Nc, L) + 0.15) / 1.15, 0.0, 1.0) * smoothstep(-0.10, 0.03, muS);
-  vec3 col = vec3(0.94) * uSun * sunT * lit * selfShadow * (0.72 + 0.28 * uLayer);
-  // Blue skylight fills the shaded sides so they are not black.
-  col += vec3(0.020, 0.032, 0.055) * uSun * sunT * smoothstep(-0.05, 0.4, muS);
-  // Silver lining when looking toward the Sun through thin edges.
+  float lambert = clamp((dot(Nb, L) + 0.1) / 1.1, 0.0, 1.0);
+  float day = smoothstep(-0.10, 0.03, muS);
+  // Valleys between billows are darker (ambient occlusion); thick cores brighter.
+  float ao = mix(0.58, 1.0, smoothstep(0.25, 0.9, n)) * (0.8 + 0.2 * t);
+  vec3 col = vec3(0.80) * uSun * sunT * lambert * selfShadow * ao * day;
+  // Blue skylight fills the shaded sides.
+  col += vec3(0.018, 0.030, 0.052) * uSun * sunT * smoothstep(-0.05, 0.4, muS) * ao;
+  // Thin cloud lets the light through toward the viewer (forward scattering / silver lining).
   float fwd = pow(max(dot(-V, L), 0.0), 8.0);
-  col += uSun * sunT * fwd * (1.0 - d) * 0.6;
+  col += uSun * sunT * fwd * (1.0 - alpha) * 0.5;
 
   float nv = max(dot(N, V), 0.0);
   vec3 Tv = exp(-TAU_E * chapman(1.4 + uLayer, nv));
   col = col * Tv + inscatter(Tv, sunT, dot(-V, L));
 
-  gl_FragColor = vec4(col, d * uOpacity * uLayerAlpha);
+  gl_FragColor = vec4(col, alpha * uOpacity * uLayerAlpha);
 }
 `;
 
