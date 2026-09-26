@@ -161,20 +161,69 @@ internal sealed class SettingsForm : Form
         }
         tabs.Size = new Size(max.Width + 40, max.Height + 60);
 
+        // Presets + export/import above the tabs.
+        var presetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 330 };
+        presetBox.Items.AddRange(Presets.All.Select(p => (object)p.Name).ToArray());
+        presetBox.SelectedIndex = 0;
+        var presetApply = new Button { Text = "Use preset", AutoSize = true };
+        presetApply.Click += (_, _) =>
+        {
+            Commit(save: false);                       // keep edits made in other tabs
+            Presets.All[presetBox.SelectedIndex].Apply(_s);
+            LoadValues();
+            Commit();
+        };
+        var export = new Button { Text = "Export…", AutoSize = true };
+        export.Click += (_, _) => ExportSettings();
+        var import = new Button { Text = "Import…", AutoSize = true };
+        import.Click += (_, _) => ImportSettings();
+        var presetRow = Flow(new Label { Text = "Preset", AutoSize = true, Margin = new Padding(0, 7, 8, 0) },
+                             presetBox, presetApply, export, import);
+        presetRow.Margin = new Padding(0, 0, 0, 8);
+
         var root = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill };
+        root.Controls.Add(presetRow);
         root.Controls.Add(tabs);
         root.Controls.Add(_statusLabel);
         root.Controls.Add(actions);
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true, MinimumSize = new Size(80, 0) };
-        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true, MinimumSize = new Size(80, 0) };
+        // This window is modeless (Show, not ShowDialog), so the buttons close it themselves.
+        var ok = new Button { Text = "OK", AutoSize = true, MinimumSize = new Size(80, 0) };
+        var cancel = new Button { Text = "Cancel", AutoSize = true, MinimumSize = new Size(80, 0) };
+        cancel.Click += (_, _) => Close();
         var applyButton = new Button { Text = "Apply", AutoSize = true, MinimumSize = new Size(80, 0) };
         applyButton.Click += (_, _) => Commit();
-        ok.Click += (_, _) => Commit();
+        ok.Click += (_, _) => { Commit(); Close(); };
         AcceptButton = ok;
         CancelButton = cancel;
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 12, 0, 0) };
         buttons.Controls.AddRange(new Control[] { cancel, ok, applyButton });
-        root.Controls.Add(buttons);
+        // Credits (left) and buttons (right) on the bottom row; only Ax-Easy is orange.
+        var credits = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 16, 12, 0) };
+        Label Plain(string t) => new() { Text = t, AutoSize = true, Margin = Padding.Empty, ForeColor = SystemColors.GrayText };
+        LinkLabel Link(string t, string url, Color color)
+        {
+            var l = new LinkLabel { Text = t, AutoSize = true, Margin = Padding.Empty, LinkColor = color, ActiveLinkColor = color, LinkBehavior = LinkBehavior.HoverUnderline };
+            l.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            return l;
+        }
+        var blue = Color.FromArgb(0, 102, 204);
+        credits.Controls.AddRange(new Control[]
+        {
+            Plain($"3D Earth {Application.ProductVersion.Split('+')[0]} · created by "),
+            Link("Vangelis Makridakis", "https://www.ax-easy.com", blue),
+            Plain(" & "),
+            Link("Claude", "https://claude.ai", blue),
+            Plain(" · by "),
+            Link("Ax-Easy", "https://www.ax-easy.com", Color.FromArgb(255, 140, 26)),
+        });
+
+        var bottom = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill };
+        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        bottom.Controls.Add(credits, 0, 0);
+        bottom.Controls.Add(buttons, 1, 0);
+        buttons.Dock = DockStyle.Right;
+        root.Controls.Add(bottom);
         Controls.Add(root);
         LoadValues();
 
@@ -228,7 +277,7 @@ internal sealed class SettingsForm : Form
         _autostart.Checked = StartupRegistration.IsEnabled;
     }
 
-    private void Commit()
+    private void Commit(bool save = true)
     {
         _s.View = _view.SelectedIndex switch { 1 => "home", 2 => "sunrise", _ => "moon" };
         _s.HomeLat = (double)_lat.Value;
@@ -267,8 +316,42 @@ internal sealed class SettingsForm : Form
         _s.PauseOnBattery = _pauseBattery.Checked;
         _s.WeatherRefreshMinutes = (int)_refresh.Value;
         _s.CustomCloudUrl = _cloudUrl.Text.Trim();
+        if (!save) return;
         StartupRegistration.Set(_autostart.Checked);
         _apply(_s.Clone());
+    }
+
+    private void ExportSettings()
+    {
+        Commit(save: false);
+        using var dlg = new SaveFileDialog { Filter = "3D Earth settings (*.json)|*.json", FileName = "3D Earth settings.json" };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        File.WriteAllText(dlg.FileName, System.Text.Json.JsonSerializer.Serialize(_s, AppSettings.Json));
+    }
+
+    private void ImportSettings()
+    {
+        using var dlg = new OpenFileDialog { Filter = "3D Earth settings (*.json)|*.json" };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            var loaded = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(dlg.FileName), AppSettings.Json);
+            if (loaded == null) return;
+            loaded.FirstRunDone = true;
+            CopyInto(loaded, _s);
+            LoadValues();
+            Commit();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Could not read that file:\n" + ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private static void CopyInto(AppSettings from, AppSettings to)
+    {
+        foreach (var p in typeof(AppSettings).GetProperties().Where(p => p.CanRead && p.CanWrite))
+            p.SetValue(to, p.GetValue(from));
     }
 
     // ---- small layout helpers ----

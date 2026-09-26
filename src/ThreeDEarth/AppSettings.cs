@@ -72,9 +72,7 @@ public sealed class AppSettings
         }
         catch (Exception ex) { Log.Error("Loading settings", ex); }
 
-        var fresh = new AppSettings();
-        fresh.GuessHomeFromTimeZone();
-        return fresh;
+        return Presets.FirstRun();
     }
 
     public void Save()

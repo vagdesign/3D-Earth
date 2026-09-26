@@ -40,7 +40,8 @@ Right-click the globe in the notification area:
 | **Motion** | *Real time*, *Spin 360° from my location* (one turn per minute by default), *Time-lapse*, or *Day & night time-lapse above my location*. During a time-lapse the clouds of the last 24 hours are replayed in a loop, in step with day and night. The app keeps every cloud map it downloads for 24 h, so the loop fills in over the first day. The speed and a specific date/time are in Settings. |
 | Pause | Stops rendering, which uses 0% GPU. |
 | Start with Windows | Adds or removes the per-user autostart entry. |
-| **Settings…** | Tabs for view, surface (land brightness, ocean reflection and roughness, haze), motion and time, weather, sky and performance. Includes location, Earth size and position, Moon size (true size up to 4×), clouds, stars, brightness, quality, frame rate, monitors, power saving, update interval, custom cloud-map URL. |
+| **Settings…** | Presets at the top (Showcase, Real time, Spin, Sunrise, Power saver) plus Export/Import of your settings. |
+| (details) | Tabs for view, surface (land brightness, ocean reflection and roughness, haze), motion and time, weather, sky and performance. Includes location, Earth size and position, Moon size (true size up to 4×), clouds, stars, brightness, quality, frame rate, monitors, power saving, update interval, custom cloud-map URL. |
 
 ### Interactive controls (Explore / window)
 
