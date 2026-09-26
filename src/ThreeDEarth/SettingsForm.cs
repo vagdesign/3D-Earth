@@ -44,7 +44,6 @@ internal sealed class SettingsForm : Form
     private readonly ComboBox _surface = Combo(
         "Solar System Scope 8K (NASA Blue Marble)",
         "NASA Blue Marble – this month (seasons, 8K from 21600 px)",
-        "Natural Earth III 8K (shaded relief)",
         "Built-in 4K (offline)");
     private readonly ComboBox _monitors = Combo("All monitors", "Primary monitor only");
     private readonly CheckBox _pauseCovered = Check("Pause when a maximised or full-screen app covers the desktop");
@@ -280,7 +279,7 @@ internal sealed class SettingsForm : Form
         _customTime.Enabled = _useCustomTime.Checked;
         _quality.SelectedIndex = _s.Quality switch { "low" => 0, "high" => 2, _ => 1 };
         _aa.SelectedIndex = _s.Antialias >= 8 ? 3 : _s.Antialias >= 4 ? 2 : _s.Antialias >= 2 ? 1 : 0;
-        _surface.SelectedIndex = _s.SurfaceTexture switch { "bluemarble" => 1, "naturalearth" => 2, "builtin" => 3, _ => 0 };
+        _surface.SelectedIndex = _s.SurfaceTexture switch { "bluemarble" => 1, "builtin" => 2, _ => 0 };
         _fps.SelectedItem = _s.Fps.ToString(CultureInfo.InvariantCulture);
         if (_fps.SelectedIndex < 0) _fps.SelectedIndex = 3;
         _monitors.SelectedIndex = _s.Monitors == "primary" ? 1 : 0;
@@ -325,7 +324,7 @@ internal sealed class SettingsForm : Form
             : "";
         _s.Quality = _quality.SelectedIndex switch { 0 => "low", 2 => "high", _ => "medium" };
         _s.Antialias = _aa.SelectedIndex switch { 1 => 2, 2 => 4, 3 => 8, _ => 0 };
-        _s.SurfaceTexture = _surface.SelectedIndex switch { 1 => "bluemarble", 2 => "naturalearth", 3 => "builtin", _ => "sss" };
+        _s.SurfaceTexture = _surface.SelectedIndex switch { 1 => "bluemarble", 2 => "builtin", _ => "sss" };
         _s.Fps = int.Parse((string)_fps.SelectedItem!, CultureInfo.InvariantCulture);
         _s.Monitors = _monitors.SelectedIndex == 1 ? "primary" : "all";
         _s.PauseWhenCovered = _pauseCovered.Checked;

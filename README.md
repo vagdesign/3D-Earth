@@ -88,7 +88,7 @@ Everything is in its real place. The scene uses the Earth's real rotation (sider
 |---|---|---|
 | Global cloud map | [Live cloud maps](https://github.com/matteason/live-cloud-maps) by Matt Eason, from EUMETSAT/NOAA/JMA geostationary imagery | every 60 min (configurable) |
 | Tropical cyclones | [NOAA National Hurricane Center](https://www.nhc.noaa.gov/) `CurrentStorms.json` and [GDACS](https://www.gdacs.org/) | same |
-| Earth surface (choose in Settings → Surface) | [Solar System Scope](https://www.solarsystemscope.com/textures/) 8K (CC BY 4.0), [NASA Blue Marble Next Generation](https://visibleearth.nasa.gov/collection/1484/blue-marble) for the current month (seasons; 21600 px scaled to 8K), [Natural Earth III](https://www.shadedrelief.com/natural3/) 8K shaded relief, or the built-in 4K | once per choice |
+| Earth surface (choose in Settings → Surface) | [Solar System Scope](https://www.solarsystemscope.com/textures/) 8K (CC BY 4.0), [NASA Blue Marble Next Generation](https://visibleearth.nasa.gov/collection/1484/blue-marble) for the current month (seasons; 21600 px scaled to 8K), or the built-in 4K | once per choice |
 | Night lights, Moon | Solar System Scope (CC BY 4.0) | once |
 | Offline textures (bundled) | NASA Blue Marble / Earth at Night (public domain), via three-globe examples | — |
 | Milky Way | [ESO/S. Brunier panorama](https://www.eso.org/public/images/eso0932a/) (CC BY 4.0), mapped from galactic coordinates | — |

@@ -96,8 +96,6 @@ internal sealed class DataService : IDisposable
                     $"{dir}/world.topo.bathy.2004{mm}.3x5400x2700.jpg",
                 ]);
             }
-            case "naturalearth":
-                return ("naturalearth", ["https://www.shadedrelief.com/natural3/ne3_data/8192/textures/2_no_clouds_8k.jpg"]);
             case "builtin":
                 return ("builtin", []);
             default:

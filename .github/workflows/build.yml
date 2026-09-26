@@ -63,8 +63,7 @@ jobs:
         continue-on-error: true
         run: |
           $urls = @(
-            'https://www.solarsystemscope.com/textures/download/8k_earth_daymap.jpg',
-            'https://www.shadedrelief.com/natural3/ne3_data/8192/textures/2_no_clouds_8k.jpg'
+            'https://www.solarsystemscope.com/textures/download/8k_earth_daymap.jpg'
           )
           $ids = '73580','73605','73630','73655','73701','73726','73751','73776','73801','73826','73884','73909'
           for ($m = 1; $m -le 12; $m++) {
