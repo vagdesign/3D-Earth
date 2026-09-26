@@ -210,7 +210,7 @@ internal sealed class SettingsForm : Form
         CancelButton = cancel;
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 12, 0, 0) };
         buttons.Controls.AddRange(new Control[] { cancel, ok, applyButton });
-        // Credits (left) and buttons (right) on the bottom row; only Ax-Easy is orange.
+        // Credits line; only Ax-Easy is orange.
         var credits = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 16, 12, 0) };
         Label Plain(string t) => new() { Text = t, AutoSize = true, Margin = Padding.Empty, ForeColor = SystemColors.GrayText };
         LinkLabel Link(string t, string url, Color color)
@@ -230,13 +230,14 @@ internal sealed class SettingsForm : Form
             Link("Ax-Easy", "https://www.ax-easy.com", Color.FromArgb(255, 140, 26)),
         });
 
-        var bottom = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill };
-        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        bottom.Controls.Add(credits, 0, 0);
-        bottom.Controls.Add(buttons, 1, 0);
-        buttons.Dock = DockStyle.Right;
-        root.Controls.Add(bottom);
+        // Credits on their own full-width row, buttons below on a row that never wraps
+        // (sharing one row let the buttons wrap and hid OK / Apply).
+        credits.Margin = new Padding(0, 10, 0, 0);
+        root.Controls.Add(credits);
+        buttons.WrapContents = false;
+        buttons.Anchor = AnchorStyles.Right;
+        buttons.Dock = DockStyle.None;
+        root.Controls.Add(buttons);
         Controls.Add(root);
         LoadValues();
 
