@@ -124,5 +124,6 @@ jobs:
             - Windows SmartScreen may warn because the installer is not code-signed: click *More info → Run anyway*.
             - Needs the Microsoft Edge WebView2 Runtime (already on almost every PC; the installer offers the link if missing).
             - Prefer no installer? Use the portable `.zip`: unzip anywhere and run `3DEarth.exe`.
+            - Already installed? The app updates itself: tray → *Check for updates* (it also checks automatically every 12 hours).
 
             Built from ${{ github.sha }}.

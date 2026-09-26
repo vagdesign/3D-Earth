@@ -7,6 +7,11 @@ A real-time 3D Earth that lives **on your desktop, behind the icons and the task
 - **True day and night**: the Sun's real position, with city lights, a sunset-coloured terminator, ocean glint and atmospheric haze
 - **The Moon and planets at their real positions and true sizes**, with the correct lunar phase, over 5,000 real stars and the Milky Way
 - The Earth always **fills the screen height** on any monitor shape (16:9, ultrawide, portrait, multi-monitor)
+- **Choice of Earth surface**: Solar System Scope 8K, **NASA Blue Marble for the current month** (real seasons: snow, vegetation), or the built-in 4K map
+- **Motion**: real time, a 360° spin starting above your location, or a **day & night time-lapse that replays the last 24 hours of clouds**
+- **Explore mode**: rotate, pan and zoom around the live Earth with the mouse and keyboard
+- **Automatic updates**: the app checks this repository's Releases, then downloads, verifies and installs new versions itself
+- Anti-aliasing up to 8× with supersampling, 15–144 fps, fade-in from black, and power saving (pauses behind full-screen apps, when locked and on battery)
 
 | Moon beside the Earth (ultrawide) | Above my location | Sunrise behind the Earth |
 |---|---|---|
@@ -23,6 +28,16 @@ A real-time 3D Earth that lives **on your desktop, behind the icons and the task
 Requirements: Windows 10 1809+ or Windows 11, x64, and the Microsoft Edge **WebView2 Runtime**. The runtime is already present on almost every PC; the installer and the app offer the download link if it is missing.
 
 A portable `.zip` is also built. Unzip it anywhere and run `3DEarth.exe`.
+
+### Updates
+
+You only install once. After that, the app keeps itself up to date:
+
+- It checks for a new release 2 minutes after start and then every 12 hours. You can also check any time: **tray → Check for updates** or **Settings → Updates → Check for updates now**.
+- When a new version is found, a notification appears and the tray menu shows **Install update x.y.z…**.
+- Installing downloads the new setup, verifies its size and SHA-256 checksum, updates silently and restarts the wallpaper after a few seconds. Your settings and your start-with-Windows choice are kept.
+- **Settings → Updates → Install updates automatically** installs new versions without asking.
+- Portable copies don't update themselves; they open the download page instead.
 
 ## Using it
 
@@ -41,7 +56,7 @@ Right-click the globe in the notification area:
 | Pause | Stops rendering, which uses 0% GPU. |
 | **Check for updates / Install update** | The app checks this repository's Releases every 12 hours. When a newer version appears it shows a notification. Install downloads the setup, verifies its SHA-256, updates silently and restarts the wallpaper. Settings → Updates can install updates automatically. |
 | Start with Windows | Adds or removes the per-user autostart entry. |
-| **Settings…** | Presets at the top (Showcase, Real time, Spin, Sunrise, Power saver) with Export/Import of your settings, then tabs for view, surface (land brightness, ocean reflection and roughness, haze), motion and time, weather, sky and performance. Includes location, Earth size and position, Moon size (true size up to 4×), clouds, stars, brightness, quality, frame rate, monitors, power saving, update interval, custom cloud-map URL. |
+| **Settings…** | Presets at the top (Showcase, Real time, Spin, Sunrise, Power saver) with Export/Import of your settings, then these tabs: **View** (camera, location, Earth size and position, Moon size); **Surface** (Earth map, land brightness, ocean reflection and roughness, haze, city lights brightness and flicker); **Motion & time** (spin speed, time-lapse speed, 24 h cloud loop, a specific date/time); **Weather** (clouds, cloud thickness and detail, storm labels, update interval, custom cloud-map URL); **Sky** (labels, credits, stars, Milky Way, brightness); **Performance** (quality, anti-aliasing, frame rate, monitors, power saving, start with Windows); **Updates**. |
 
 ### Interactive controls (Explore / window)
 
