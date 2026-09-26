@@ -68,6 +68,7 @@ const shared = {
   uSun: { value: 2.1 },
   uCamPos: { value: new THREE.Vector3() },
   uHaze: { value: 1 },
+  uTime: { value: 0 },
 };
 
 const earth = createEarth(shared);
@@ -133,11 +134,11 @@ function resize() {
   width = window.innerWidth; height = window.innerHeight;
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(width, height, false);
-  // Anti-aliasing: MSAA 0/2/4/8; "8" also supersamples 1.5x, which smooths the
+  // Anti-aliasing: MSAA 0/2/4/8; "8" also supersamples 1.33x, which smooths the
   // shader-level (cloud) edges MSAA cannot reach.
   const aa = Math.round(settings.antialias);
   const samples = Math.min(aa >= 8 ? 8 : aa >= 4 ? 4 : aa >= 2 ? 2 : 0, renderer.capabilities.maxSamples || 4);
-  const ss = aa >= 8 ? 1.5 : 1;
+  const ss = aa >= 8 ? 1.33 : 1;
   const w = Math.max(1, Math.round(width * pixelRatio * ss)), h = Math.max(1, Math.round(height * pixelRatio * ss));
   post.material.uniforms.uTexel.value.set(1 / Math.max(1, width * pixelRatio), 1 / Math.max(1, height * pixelRatio));
   post.material.uniforms.uSS.value = ss > 1 ? 1 : 0;
@@ -283,6 +284,7 @@ function render() {
   }
   frameCamera(camera, frameSettings, eph, width, height, view);
   shared.uHaze.value = settings.haze;
+  shared.uTime.value = now / 1000;
 
   shared.uSunDir.value.copy(eph.sunDir);
   shared.uCamPos.value.copy(camera.position);

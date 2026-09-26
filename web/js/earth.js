@@ -26,6 +26,7 @@ export function createEarth(shared) {
       uBumpTexel: { value: new THREE.Vector2(1 / 2048, 1 / 1024) },
       uCloudsOn: { value: 1 },
       uLightsI: { value: 1.5 },
+      uFlicker: { value: 0.3 },
       uLand: { value: 1 },
       uGlint: { value: 1 },
       uRough: { value: 0.35 },
@@ -172,6 +173,8 @@ export function createEarth(shared) {
     cloudLayers.forEach((m) => { m.visible = settings.clouds && m.userData.active; });
     earthMat.uniforms.uCloudsOn.value = settings.clouds ? 1 : 0;
     earthMat.uniforms.uLand.value = settings.landBrightness;
+    earthMat.uniforms.uLightsI.value = 1.5 * settings.lightsBrightness;
+    earthMat.uniforms.uFlicker.value = settings.lightsFlicker;
     earthMat.uniforms.uGlint.value = settings.oceanReflection;
     earthMat.uniforms.uRough.value = settings.oceanRoughness;
     cloudShared.uOpacity.value = settings.cloudOpacity;

@@ -33,6 +33,8 @@ public sealed class AppSettings
     public double OceanReflection { get; set; } = 1.0;
     public double OceanRoughness { get; set; } = 0.35;
     public double Haze { get; set; } = 1.0;
+    public double LightsBrightness { get; set; } = 1.0;
+    public double LightsFlicker { get; set; } = 0.3;
     public string Motion { get; set; } = "live";         // live | spin | timelapse | daylapse
     public double SpinSeconds { get; set; } = 60;
     public double TimeSpeed { get; set; } = 60;

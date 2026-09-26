@@ -25,8 +25,10 @@ export const DEFAULTS = {
   oceanReflection: 1.0,  // strength of sun glint + sky reflection on water
   oceanRoughness: 0.35,  // 0 = mirror-calm sea, 1 = rough/matte
   haze: 1.0,             // atmospheric haze over the surface
+  lightsBrightness: 1.0, // city lights at night
+  lightsFlicker: 0.3,    // subtle twinkle of city lights, 0..1
   quality: 'medium',     // 'low' | 'medium' | 'high'
-  antialias: 4,          // 0 | 2 | 4 | 8 (8 = MSAA 8x + 1.5x supersampling)
+  antialias: 4,          // 0 | 2 | 4 | 8 (8 = MSAA 8x + 1.33x supersampling)
   fps: 30,
   renderScale: 1,
   motion: 'live',        // 'live' | 'spin' (orbit from my location) | 'timelapse' | 'daylapse' (time-lapse above my location)

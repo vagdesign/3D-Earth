@@ -53,6 +53,21 @@ vec3 inscatter(vec3 Tv, vec3 sunT, float mu) {
   return uSun * sunT * (1.0 - Tv) * phaseMix(mu) * 0.25 * uHaze;
 }
 
+uniform float uTime;         // seconds
+
+float hash3(vec3 p) {
+  p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float vnoise(vec3 x) {
+  vec3 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x),
+                 mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x),
+                 mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
 // ---- clouds ----
 uniform sampler2D uCloudA;
 uniform sampler2D uCloudB;
@@ -76,8 +91,14 @@ float cloudAt(vec2 uv) {
   vec2 o1 = f * (p - 0.5) * 2.0, o2 = f * (fract(p + 0.5) - 0.5) * 2.0;
   float w = abs(p - 0.5) * 2.0;
   float a = mix(cloudRaw(uCloudA, uv + o1), cloudRaw(uCloudA, uv + o2), w);
+  if (uCloudMix < 0.001) return a;                 // no cross-fade running: skip map B
   float b = mix(cloudRaw(uCloudB, uv + o1), cloudRaw(uCloudB, uv + o2), w);
   return mix(a, b, uCloudMix);
+}
+// Cheaper lookup (no flow) for self-shadow marching.
+float cloudFast(vec2 uv) {
+  float a = cloudRaw(uCloudA, uv);
+  return uCloudMix < 0.001 ? a : mix(a, cloudRaw(uCloudB, uv), uCloudMix);
 }
 `;
 
@@ -105,6 +126,7 @@ uniform sampler2D uWater;
 uniform vec2 uBumpTexel;
 uniform float uCloudsOn;
 uniform float uLightsI;
+uniform float uFlicker;      // 0 = steady city lights ... 1 = strong twinkle
 uniform float uLand;         // land brightness / diffuse albedo (setting)
 uniform float uGlint;        // ocean reflection strength (setting)
 uniform float uRough;        // ocean roughness 0 = mirror ... 1 = matte (setting)
@@ -166,7 +188,10 @@ void main() {
   // City lights on the night side, hidden by clouds.
   float night = smoothstep(0.06, -0.14, muS);
   float lights = texture2D(uLights, vUv).r;
-  col += vec3(1.0, 0.74, 0.45) * lights * lights * uLightsI * night * (1.0 - 0.9 * cloud);
+  // Subtle scintillation: city-sized cells brighten and dim a little over time.
+  vec3 lp = vec3(vUv * vec2(2400.0, 1200.0), uTime * 1.7);
+  float flick = 1.0 + uFlicker * (vnoise(lp) + 0.5 * vnoise(lp * 2.3 + 11.0) - 0.75) * 1.1;
+  col += vec3(1.0, 0.74, 0.45) * lights * lights * uLightsI * flick * night * (1.0 - 0.9 * cloud);
 
   // Atmosphere between the ground and the camera.
   float od = chapman(0.0, max(nv, 0.0));
@@ -203,19 +228,6 @@ varying vec3 vN;
 varying vec3 vPos;
 varying vec3 vObjN;
 
-float hash3(vec3 p) {
-  p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
-  p *= 17.0;
-  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
-}
-float vnoise(vec3 x) {
-  vec3 i = floor(x), f = fract(x);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x),
-                 mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
-             mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x),
-                 mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
-}
 const mat3 OCT_ROT = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
 
 // Billowy fbm from continent-scale bands down to ~5 km cells. Octaves smaller
@@ -271,25 +283,23 @@ void main() {
   float det = dot(dpdx, r1);
   vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
   vec3 Nb = normalize(abs(det) * N - grad * 5.0);
-  // Large-scale relief from the satellite map as well.
-  vec2 tx = vec2(uCloudTexel.x * 1.5, 0.0), ty = vec2(0.0, uCloudTexel.y * 1.5);
-  float cx = cloudAt(vUv + tx) - cloudAt(vUv - tx);
-  float cy = cloudAt(vUv + ty) - cloudAt(vUv - ty);
   float cosLatC = max(cosLat, 0.3);                // avoid radial streaks at the poles
-  Nb = normalize(Nb - (0.15 + 0.25 * uLayer) * (cx / cosLatC * east + cy * north) * smoothstep(0.05, 0.3, cosLat));
 
   float muS = dot(N, L);
   vec3 sunT = sunTransmittance(1.4 + uLayer, muS);
 
-  // Self-shadowing toward the Sun across the cloud field (long shadows near the terminator).
-  vec2 sunUV = vec2(dot(L, east) / cosLatC / (2.0 * PI), dot(L, north) / PI);
+  // Self-shadowing toward the Sun across the cloud field. Only matters when the
+  // Sun is low (long shadows near the terminator); skipped otherwise.
   float occl = 0.0;
-  for (int i = 1; i <= 5; i++) {
-    if (float(i) > uShadowSteps) break;
-    float fi = float(i);
-    occl += smoothstep(th, th + 0.4, cloudAt(vUv + sunUV * fi * 0.0028)) * (1.0 - 0.12 * fi);
+  if (muS < 0.6 && muS > -0.15) {
+    vec2 sunUV = vec2(dot(L, east) / cosLatC / (2.0 * PI), dot(L, north) / PI);
+    for (int i = 1; i <= 5; i++) {
+      if (float(i) > uShadowSteps) break;
+      float fi = float(i);
+      occl += smoothstep(th, th + 0.4, cloudFast(vUv + sunUV * fi * 0.0028)) * (1.0 - 0.12 * fi);
+    }
+    occl *= smoothstep(0.05, 0.3, cosLat) * smoothstep(0.6, 0.35, muS);
   }
-  occl *= smoothstep(0.05, 0.3, cosLat);
   float selfShadow = exp(-occl * 0.5 * (1.1 - uLayer));
 
   float lambert = clamp((dot(Nb, L) + 0.1) / 1.1, 0.0, 1.0);

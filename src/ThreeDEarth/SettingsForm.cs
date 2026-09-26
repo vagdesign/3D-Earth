@@ -30,6 +30,8 @@ internal sealed class SettingsForm : Form
     private readonly TrackBar _glint = Track(0, 200);
     private readonly TrackBar _rough = Track(0, 100);
     private readonly TrackBar _haze = Track(0, 200);
+    private readonly TrackBar _lights = Track(0, 250);
+    private readonly TrackBar _flicker = Track(0, 100);
     private readonly ComboBox _motion = Combo("Real time", "Spin around the Earth from my location", "Time-lapse", "Day & night time-lapse above my location");
     private readonly CheckBox _cloudLoop = Check("During time-lapse, replay the clouds of the last 24 hours");
     private readonly TrackBar _cloudCover = Track(40, 200);
@@ -113,6 +115,8 @@ internal sealed class SettingsForm : Form
         Row(grid, "Ocean reflection", _glint);
         Row(grid, "Ocean: calm mirror ↔ rough", _rough);
         Row(grid, "Atmosphere haze", _haze);
+        Row(grid, "City lights at night", _lights);
+        Row(grid, "City lights flicker", _flicker);
 
         grid = NewTab("Motion & time");
         Row(grid, "Motion", _motion);
@@ -268,6 +272,8 @@ internal sealed class SettingsForm : Form
         _glint.Value = Clamp(_glint, (int)Math.Round(_s.OceanReflection * 100));
         _rough.Value = Clamp(_rough, (int)Math.Round(_s.OceanRoughness * 100));
         _haze.Value = Clamp(_haze, (int)Math.Round(_s.Haze * 100));
+        _lights.Value = Clamp(_lights, (int)Math.Round(_s.LightsBrightness * 100));
+        _flicker.Value = Clamp(_flicker, (int)Math.Round(_s.LightsFlicker * 100));
         _motion.SelectedIndex = _s.Motion switch { "spin" => 1, "timelapse" => 2, "daylapse" => 3, _ => 0 };
         _cloudLoop.Checked = _s.CloudLoop;
         _cloudCover.Value = Clamp(_cloudCover, (int)Math.Round(_s.CloudCover * 100));
@@ -314,6 +320,8 @@ internal sealed class SettingsForm : Form
         _s.OceanReflection = _glint.Value / 100.0;
         _s.OceanRoughness = _rough.Value / 100.0;
         _s.Haze = _haze.Value / 100.0;
+        _s.LightsBrightness = _lights.Value / 100.0;
+        _s.LightsFlicker = _flicker.Value / 100.0;
         _s.Motion = _motion.SelectedIndex switch { 1 => "spin", 2 => "timelapse", 3 => "daylapse", _ => "live" };
         _s.CloudLoop = _cloudLoop.Checked;
         _s.CloudCover = _cloudCover.Value / 100.0;
