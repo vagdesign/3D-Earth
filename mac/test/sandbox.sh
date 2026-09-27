@@ -78,7 +78,8 @@ if [ -n "$INST" ]; then
   : > "$LOG"
   rm -f "$SNAP"
   START="$(date '+%Y-%m-%d %H:%M:%S')"
-  open -n "$INST" --args --no-welcome --test-login-item --snapshot "$SNAP" --snapshot-delay 25
+  # (no --test-login-item here, so the two runs tell which sandbox reports come from SMAppService)
+  open -n "$INST" --args --no-welcome --snapshot "$SNAP" --snapshot-delay 25
   for _ in $(seq 1 90); do [ -s "$SNAP" ] && break; sleep 1; done
   sleep 2
   pgrep -fl "$INST/Contents/MacOS/3DEarth" || { echo "::error::installed app not running"; fail=1; }
