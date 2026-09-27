@@ -20,6 +20,13 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         if rel.hasPrefix("data/") {
             root = Paths.data
             rel = String(rel.dropFirst(5))
+            // Downloaded data is only ever images and JSON; never serve anything
+            // else (no downloaded code can reach the page).
+            let dataExt = (rel as NSString).pathExtension.lowercased()
+            guard ["jpg", "jpeg", "png", "webp", "json"].contains(dataExt) else {
+                respond(urlSchemeTask, url: url, status: 404, type: "text/plain", body: Data("Not Found".utf8))
+                return
+            }
         }
         if rel.isEmpty { rel = "index.html" }
 
@@ -128,15 +135,24 @@ final class WebScene: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WK
         let ucc = WKUserContentController()
         ucc.addUserScript(WKUserScript(source: WebScene.bridgeJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         config.userContentController = ucc
+        #if !APPSTORE
         if AppInfo.hasArg("--devtools") {
             config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         }
+        #endif
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: config)
         super.init()
         ucc.add(WeakScriptHandler(self), name: "host")
         webView.navigationDelegate = self
         webView.uiDelegate = self
+        #if APPSTORE
+        // Public API only: no white flash before the first frame, because the web view
+        // stays transparent (alpha 0) over the black window until the page has loaded.
+        webView.underPageBackgroundColor = .black
+        webView.alphaValue = 0
+        #else
         webView.setValue(false, forKey: "drawsBackground")
+        #endif
         webView.allowsMagnification = false
         webView.allowsBackForwardNavigationGestures = false
         webView.autoresizingMask = [.width, .height]
@@ -229,6 +245,7 @@ final class WebScene: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WK
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Log.info("[\(name)] navigation ok")
+        webView.alphaValue = 1
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

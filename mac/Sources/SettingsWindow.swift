@@ -170,7 +170,9 @@ struct SettingsView: View {
                 weatherTab.tabItem { Text("Weather") }
                 skyTab.tabItem { Text("Sky") }
                 performanceTab.tabItem { Text("Performance") }
+                #if !APPSTORE
                 updatesTab.tabItem { Text("Updates") }
+                #endif
             }
             .frame(minHeight: 380)
 
@@ -333,6 +335,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
+    #if !APPSTORE
     private var updatesTab: some View {
         Form {
             LabeledContent("Installed version") { Text(AppInfo.version) }
@@ -349,6 +352,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
     }
+    #endif
 }
 
 @MainActor

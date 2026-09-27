@@ -9,6 +9,14 @@ enum AppInfo {
     static let copyright = "© 2026 Ax-Easy - Vangelis Makridakis"
     static let showSettingsNotification = Notification.Name("com.axeasy.3DEarth.showSettings")
 
+    /// Mac App Store build (compiled with -D APPSTORE by `mac/build.sh --appstore`):
+    /// sandboxed, and updates come from the App Store, so there is no update check.
+    #if APPSTORE
+    static let isAppStore = true
+    #else
+    static let isAppStore = false
+    #endif
+
     static func hasArg(_ a: String) -> Bool { CommandLine.arguments.contains(a) }
 
     static func argValue(_ a: String) -> String? {

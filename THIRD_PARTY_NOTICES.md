@@ -13,8 +13,8 @@
 **Downloaded at runtime** (not redistributed with the app):
 - Solar System Scope textures — CC BY 4.0, https://www.solarsystemscope.com/textures/
 - NASA Blue Marble Next Generation (Reto Stöckli, NASA Earth Observatory) — public domain, https://visibleearth.nasa.gov/collection/1484/blue-marble
-- Live cloud maps by Matt Eason — https://github.com/matteason/live-cloud-maps (see that project for terms; source imagery © EUMETSAT, NOAA, JMA)
+- Live cloud maps by Matt Eason — https://github.com/matteason/live-cloud-maps, released under CC0 1.0. Contains modified EUMETSAT data (EUMETSAT Data Policy, CC BY 4.0 for core data).
 - NOAA National Hurricane Center storm data — public domain
-- GDACS (Global Disaster Alert and Coordination System, European Commission JRC / UN OCHA) — used with attribution
+- GDACS (Global Disaster Alert and Coordination System, European Commission JRC / UN OCHA) — used with attribution, provided "as is" (https://www.gdacs.org/documents/2025/GDACS_Terms_of_use_Mar_25.pdf)
 
 **Microsoft Edge WebView2** — Microsoft.Web.WebView2 SDK, BSD-style licence, © Microsoft Corporation.
