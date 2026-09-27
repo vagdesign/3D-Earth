@@ -34,7 +34,11 @@ The Mac app is built in two variants from the same sources:
   `LSApplicationCategoryType = public.app-category.weather` (the app's live content
   is the global cloud cover and active tropical storms; *Utilities* stays the
   category of the Developer ID build), copyright `© 2026 Ax-Easy`.
-- Icon: `mac/AppIcon-1024.png` (1024 px) when present, else the 256 px `mac/AppIcon.png`.
+- Privacy manifest `mac/PrivacyInfo.xcprivacy` (no tracking, no data collected; file-size read of the app's own log, reason C617.1).
+- Icon: `mac/AppIcon-1024.png` (1024 px, rendered from the app's own scene: NASA Blue Marble +
+  the bundled NASA cloud map, on a dark rounded square on Apple's 824 px icon grid, so macOS 26 does
+  not put it inside a grey square as it does with non-square legacy icons). The Developer ID build
+  still uses the 256 px `mac/AppIcon.png`.
 
 ## CI
 

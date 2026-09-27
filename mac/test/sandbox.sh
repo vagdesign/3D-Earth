@@ -27,9 +27,18 @@ plutil -p "$APP/Contents/Info.plist" | grep -E 'CFBundle(ShortVersionString|Vers
 if strings "$BIN" | grep -q 'api.github.com'; then echo "::error::the App Store binary still contains the GitHub update check"; fail=1; else echo "No self-update code (api.github.com) in the binary."; fi
 
 rm -rf "$CONTAINER" "$HOME/Library/Application Support/3D Earth"
-START="$(date '+%Y-%m-%d %H:%M:%S')"
 
-echo "=== launch (sandboxed) ==="
+violations() {   # $1 = start time, $2 = tag
+  log show --start "$1" --style compact \
+    --predicate '(sender == "Sandbox" OR subsystem == "com.apple.sandbox.reporting" OR eventMessage CONTAINS "Sandbox:") AND eventMessage CONTAINS[c] "3DEarth"' \
+    > "$OUT/sandbox-violations-$2.txt" 2>&1 || true
+  echo "sandbox denials logged for 3DEarth ($2): $(grep -c 'Sandbox: 3DEarth.*deny' "$OUT/sandbox-violations-$2.txt" || true)"
+  grep -o 'Sandbox: 3DEarth([0-9]*) deny.*' "$OUT/sandbox-violations-$2.txt" | sed -E 's/\([0-9]+\)//' | sort | uniq -c | sort -rn | head -40
+}
+
+# 1) Fresh install, started directly from the build folder (stderr captured).
+echo "=== launch 1: fresh, direct (sandboxed) ==="
+START="$(date '+%Y-%m-%d %H:%M:%S')"
 SNAP="$DATA/sandbox-snapshot.png"   # the app may only write inside its container
 "$BIN" --no-welcome --test-login-item --snapshot "$SNAP" --snapshot-delay 40 > "$OUT/stderr.txt" 2>&1 &
 pid=$!
@@ -49,22 +58,39 @@ if [ -d "$DATA" ]; then echo "container: $CONTAINER"; else echo "::error::no san
 find "$DATA/Library/Application Support" "$DATA/Library/Logs" -maxdepth 3 -type f -exec ls -la {} \; 2>/dev/null | sed "s|$HOME|~|"
 [ -d "$HOME/Library/Application Support/3D Earth" ] && { echo "::error::wrote outside the container"; fail=1; }
 cp "$SNAP" "$OUT/wallpaper-snapshot.png" 2>/dev/null || true
-cp "$LOG" "$OUT/3DEarth.log" 2>/dev/null || true
 cp "$SUPPORT/data/manifest.json" "$OUT/manifest.json" 2>/dev/null || true
 
-echo "=== app log ==="
+echo "=== app log (launch 1) ==="
 grep -E "Starting 3D Earth|scene ready|page state|snapshot|Clouds|Texture|Surface|storm|Storm|Open at login|ERROR|navigation" "$OUT/stderr.txt" | head -60
 grep -q "sandboxed (" "$OUT/stderr.txt" || { echo "::error::the app did not report APP_SANDBOX_CONTAINER_ID"; fail=1; }
 grep -q "scene ready" "$OUT/stderr.txt" || { echo "::error::the scene did not report ready"; fail=1; }
 grep -q "Clouds updated from" "$OUT/stderr.txt" || echo "::warning::no cloud map downloaded in the sandbox (network?)"
 [ -s "$OUT/wallpaper-snapshot.png" ] || { echo "::error::no snapshot written"; fail=1; }
+echo "=== sandbox violations (launch 1) ==="
+violations "$START" direct
 
-echo "=== sandbox violations (system log) ==="
-log show --start "$START" --style compact \
-  --predicate '(sender == "Sandbox" OR subsystem == "com.apple.sandbox.reporting" OR eventMessage CONTAINS "Sandbox:") AND eventMessage CONTAINS[c] "3DEarth"' \
-  > "$OUT/sandbox-violations.txt" 2>&1 || true
-n="$(grep -c 'deny' "$OUT/sandbox-violations.txt" || true)"
-echo "sandbox denials logged for 3DEarth: ${n:-0}"
-grep 'deny' "$OUT/sandbox-violations.txt" | sed -E 's/.*(deny[^ ]*) *\(?[0-9]*\)? *([^ ]+) *(.*)/\1 \2 \3/' | sort | uniq -c | sort -rn | head -40
+# 2) Installed in /Applications and opened through Launch Services, as a user
+#    (or App Review) would, reusing the container from run 1.
+echo "=== launch 2: installed in /Applications, opened with 'open' ==="
+INST="/Applications/3D Earth.app"
+rm -rf "$INST" && ditto "$APP" "$INST" || { echo "::warning::cannot install into /Applications"; INST=""; }
+if [ -n "$INST" ]; then
+  : > "$LOG"
+  rm -f "$SNAP"
+  START="$(date '+%Y-%m-%d %H:%M:%S')"
+  open -n "$INST" --args --no-welcome --test-login-item --snapshot "$SNAP" --snapshot-delay 25
+  for _ in $(seq 1 90); do [ -s "$SNAP" ] && break; sleep 1; done
+  sleep 2
+  pgrep -fl "$INST/Contents/MacOS/3DEarth" || { echo "::error::installed app not running"; fail=1; }
+  pkill -f "$INST/Contents/MacOS/3DEarth"
+  sleep 2
+  cp "$SNAP" "$OUT/wallpaper-snapshot-installed.png" 2>/dev/null || true
+  cp "$LOG" "$OUT/3DEarth-installed.log" 2>/dev/null || true
+  grep -E "Starting 3D Earth|scene ready|snapshot|Open at login|ERROR" "$LOG" | head -20
+  grep -q "scene ready" "$LOG" || { echo "::error::installed app: the scene did not report ready"; fail=1; }
+  echo "=== sandbox violations (launch 2) ==="
+  violations "$START" installed
+  rm -rf "$INST"
+fi
 ls -la "$OUT"
 exit $fail

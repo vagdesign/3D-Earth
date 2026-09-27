@@ -51,6 +51,7 @@ fi
 cp -R web "$APP/Contents/Resources/web"
 rm -rf "$APP/Contents/Resources/web/data"
 cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+if [ "$VARIANT" = appstore ]; then cp mac/PrivacyInfo.xcprivacy "$APP/Contents/Resources/"; fi
 
 # App icon. The App Store needs a 1024 px image (icon_512x512@2x); mac/AppIcon-1024.png
 # is the high-resolution source, mac/AppIcon.png the Windows icon's 256 px image.
