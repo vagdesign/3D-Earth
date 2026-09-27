@@ -13,6 +13,8 @@ The Mac app is built in two variants from the same sources:
 
 ## What the App Store variant changes
 
+- A "Privacy policy" link (https://www.ax-easy.com/3d-earth/privacy) in the Settings footer and the About panel (Guideline 5.1.1).
+
 - **App Sandbox** with only `com.apple.security.network.client` (HTTPS downloads of
   cloud maps, storm lists and Earth/Moon textures) and
   `com.apple.security.files.user-selected.read-write` (Settings → Export…/Import…).

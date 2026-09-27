@@ -6,7 +6,7 @@
 
 **d3-celestial data** — BSD 3-Clause, © 2015 Olaf Frohn. The star catalogue (`web/assets/stars.json`) and the Milky Way outline (rendered into `web/assets/milkyway.jpg`) are derived from it. Licence in `web/assets/LICENSE.d3-celestial.txt`.
 
-**NASA imagery** — Blue Marble, Earth at Night and topography, public domain (NASA Visible Earth / Earth Observatory). The bundled `web/assets/earth_*.jpg` and `clouds_fallback.jpg` come from the [three-globe](https://github.com/vasturiano/three-globe) examples (MIT).
+**NASA imagery and Natural Earth III** — Blue Marble and Earth at Night, public domain (NASA Visible Earth / Earth Observatory); relief, water mask and fair-weather clouds from Natural Earth III by Tom Patterson (shadedrelief.com), public domain. The bundled `web/assets/earth_*.jpg` and `clouds_fallback.jpg` come from the [three-globe](https://github.com/vasturiano/three-globe) examples (MIT).
 
 **Milky Way panorama** — ESO/S. Brunier, *The Milky Way panorama* (eso0932a), CC BY 4.0, https://www.eso.org/public/images/eso0932a/. Downloaded by the build and bundled as `web/assets/milkyway_eso.jpg`.
 

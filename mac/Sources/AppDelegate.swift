@@ -488,6 +488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc private func showAbout() {
+        let privacyLink = AppInfo.isAppStore ? " · <a href=\"" + AppInfo.privacyURL.absoluteString + "\">Privacy policy</a>" : ""
         let html = """
         <div style="font-family: -apple-system, 'Helvetica Neue'; font-size: 11px; text-align: center; color: #888">
         Live 3D Earth wallpaper: current clouds, storms, true day and night, the Moon and planets.<br><br>
@@ -499,9 +500,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         Earth, night lights and Moon: Solar System Scope (CC BY 4.0)<br>
         NASA Blue Marble Next Generation and Earth at Night (public domain)<br>
         Milky Way: ESO/S. Brunier (CC BY 4.0)<br>
-        Stars: d3-celestial / Yale Bright Star Catalogue (BSD 3-Clause)<br>
+        Stars: d3-celestial, Hipparcos/XHIP data (BSD 3-Clause)<br>
         three.js (MIT) · Astronomy Engine by Don Cross (MIT)<br><br>
-        <a href="https://github.com/\(AppInfo.feedRepo)">github.com/\(AppInfo.feedRepo)</a>
+        <a href="https://github.com/\(AppInfo.feedRepo)">github.com/\(AppInfo.feedRepo)</a>\(privacyLink)
         </div>
         """
         var options: [NSApplication.AboutPanelOptionKey: Any] = [
