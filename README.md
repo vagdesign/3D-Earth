@@ -1,6 +1,6 @@
-# 3D Earth — live wallpaper for Windows 10/11
+# 3D Earth — live wallpaper for Windows 10/11 and macOS
 
-A real-time 3D Earth that lives **on your desktop, behind the icons and the taskbar**:
+A real-time 3D Earth that lives **on your desktop, behind the icons and the taskbar** (on a Mac: behind the desktop icons and every window):
 
 - **Current clouds** from geostationary weather satellites, refreshed every hour and cross-faded in slowly, drawn as a layered 3D cloud deck. Procedural billows add detail from continent scale down to a few km, with relief lighting and self-shadowing
 - **Active hurricanes, typhoons and cyclones** with name, category and wind speed (NHC + GDACS)
@@ -38,6 +38,23 @@ You only install once. After that, the app keeps itself up to date:
 - Installing downloads the new setup, verifies its size and SHA-256 checksum, updates silently and restarts the wallpaper after a few seconds. Your settings and your start-with-Windows choice are kept.
 - **Settings → Updates → Install updates automatically** installs new versions without asking.
 - Portable copies don't update themselves; they open the download page instead.
+
+## Install on macOS
+
+1. Download `3D-Earth-mac-x.y.z.dmg` (or the `.zip`) from the [latest release](https://github.com/vagdesign/3D-Earth/releases/latest).
+2. Open the disk image and drag **3D Earth** to **Applications** (from the zip: unzip it, then move **3D Earth** to Applications).
+3. Open **3D Earth** from Applications or Launchpad. The Earth appears behind your desktop icons on every display and every Space, and a globe icon appears in the menu bar. There is no Dock icon.
+
+Requirements: macOS 13 Ventura or later, on Apple silicon or Intel (one universal app). The app is signed with Developer ID and notarized by Apple, so it opens without warnings.
+
+- **Menu bar globe:** the same View, Motion, Explore, labels, Update weather now and Pause items as on Windows, plus **Open at login** (off until you turn it on), **Settings…** (the same tabs as on Windows), **About 3D Earth** (credits) and **Stop wallpaper & quit**. Opening the app again while it runs opens Settings.
+- **Power saving:** rendering pauses when windows or a full-screen app completely cover the desktop, while the screen is locked, the screen saver runs or the displays sleep, and (optional) on battery.
+- **Displays:** it follows displays being added, removed or changing resolution, and comes back after sleep. Settings → Performance → Show on can limit it to the main display.
+- **Updates:** Settings → Updates (or the menu) checks this repository's Releases every 12 hours and tells you when a new version is out. On the Mac you install it the same way as above, replacing the old app; settings are kept.
+- Settings live in `~/Library/Application Support/3D Earth/` (downloaded data in `data/`), the log in `~/Library/Logs/3D Earth/3DEarth.log`. Settings exported on Windows import on the Mac and the other way round.
+- To uninstall: menu bar globe → Stop wallpaper & quit, turn off Open at login first if you enabled it, then move the app to the Bin.
+
+Your normal desktop picture (System Settings → Wallpaper) is untouched: 3D Earth draws above it and it shows again when you quit.
 
 ## Using it
 
@@ -86,6 +103,13 @@ Power saving (on by default): rendering pauses when a maximised or full-screen a
  ├─ DataService       downloads clouds, storms and HD textures to %LOCALAPPDATA%\3D Earth\data
  └─ TrayContext       tray menu, settings, watchdog (Explorer restarts, display changes), power saving
 
+3D Earth.app (macOS 13+, Swift / AppKit, universal arm64 + x86_64)   mac/
+ ├─ WallpaperWindow   one borderless window per display at desktop level (below the icons),
+ │                    on all Spaces, ignores the mouse; hosts WKWebView
+ ├─ SchemeHandler     serves ./web and the data folder from one origin (earth://local)
+ ├─ DataService       the same downloads as on Windows, to ~/Library/Application Support/3D Earth/data
+ └─ AppDelegate       menu bar item, settings (SwiftUI), display/sleep/lock handling, power saving
+
 web/ (Three.js WebGL scene; runs in any browser too)
  ├─ astro.js      Sun/Moon/planet positions and Earth rotation (Astronomy Engine)
  ├─ framing.js    keeps the Earth filling the screen height; the three camera views
@@ -131,7 +155,14 @@ dotnet publish src/ThreeDEarth/ThreeDEarth.csproj -c Release -r win-x64 --self-c
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DSourceDir=..\publish installer\3DEarth.iss
 ```
 
-GitHub Actions builds the installer and the portable zip on every push. Pushing a tag `vX.Y.Z` creates a release.
+Build the Mac app (on a Mac with Xcode or the Command Line Tools):
+
+```bash
+mac/build.sh 0.7.0          # → out/3D Earth.app (universal, ad-hoc signed)
+open "out/3D Earth.app"     # add --args --devtools to enable the Web Inspector
+```
+
+GitHub Actions builds the Windows installer and portable zip and the universal Mac app on every push and pull request. With the signing secrets present the Mac app is signed with Developer ID (hardened runtime), notarized, stapled and checked with `spctl`, then launched on the runner as a smoke test (snapshot + desktop screenshot, Apple silicon and Intel under Rosetta). Pushing to `main` or a tag `vX.Y.Z` creates the release with both platforms; pull requests never publish.
 
 Logs are written to `%LOCALAPPDATA%\3D Earth\3DEarth.log`. Start with `--devtools` to be able to inspect the page.
 

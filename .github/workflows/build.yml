@@ -10,6 +10,9 @@ on:
 permissions:
   contents: write
 
+env:
+  VERSION: 0.7.0
+
 jobs:
   scene:
     name: Render scene (headless)
@@ -45,7 +48,7 @@ jobs:
         id: ver
         shell: pwsh
         run: |
-          $v = '0.6.2'
+          $v = '${{ env.VERSION }}'
           if ('${{ github.ref_type }}' -eq 'tag') { $v = '${{ github.ref_name }}'.TrimStart('v') }
           "version=$v" >> $env:GITHUB_OUTPUT
 
@@ -106,24 +109,276 @@ jobs:
           name: 3DEarth-${{ steps.ver.outputs.version }}-win-x64
           path: out/*
 
-      # Every push to main (or a v* tag) publishes/updates the release for the
-      # current version, so there is always a plain download page under Releases.
-      - name: GitHub release
-        if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
+  mac:
+    name: macOS app (universal, notarized)
+    runs-on: macos-latest
+    outputs:
+      # 'true' only when the app was Developer ID signed, notarized (Accepted) and stapled.
+      notarized: ${{ steps.staple.outputs.notarized || 'false' }}
+      dmg: ${{ steps.dmg.outputs.dmg || 'false' }}
+    env:
+      # Override with a repository variable if the certificate is ever reissued under another name.
+      MACOS_SIGN_IDENTITY: "${{ vars.MACOS_SIGN_IDENTITY || 'Developer ID Application: Evangelos Makrydakis (7BMSHL4YZ6)' }}"
+      APP: out/3D Earth.app
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: ver
+        run: |
+          v='${{ env.VERSION }}'
+          if [ '${{ github.ref_type }}' = 'tag' ]; then v='${{ github.ref_name }}'; v="${v#v}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      # Same ESO/S. Brunier Milky Way panorama as the Windows build (CC BY 4.0).
+      - name: Fetch Milky Way panorama
+        continue-on-error: true
+        run: |
+          curl -fsSL --retry 3 -A '3DEarth-build' -o web/assets/milkyway_eso.jpg https://cdn.eso.org/images/large/eso0932a.jpg
+          ls -la web/assets/milkyway_eso.jpg
+      - name: Build 3D Earth.app (universal)
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun swiftc --version
+          mac/build.sh ${{ steps.ver.outputs.version }}
+      - name: Check bundle
+        run: |
+          set -euo pipefail
+          archs="$(lipo -archs "$APP/Contents/MacOS/3DEarth")"
+          echo "lipo -archs: $archs"
+          case " $archs " in *" arm64 "*) ;; *) echo "::error::arm64 slice missing"; exit 1;; esac
+          case " $archs " in *" x86_64 "*) ;; *) echo "::error::x86_64 slice missing"; exit 1;; esac
+          plutil -lint "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist"
+          otool -l "$APP/Contents/MacOS/3DEarth" | grep -A4 LC_BUILD_VERSION | grep -E 'minos|platform' | sort -u
+          for f in web/index.html web/js/main.js web/lib/three.module.js web/assets/earth_day.jpg AppIcon.icns; do test -f "$APP/Contents/Resources/$f"; done
+          codesign --verify --verbose "$APP"
+
+      # ---- Developer ID signing + notarization (skipped when the secrets are absent, e.g. forks) ----
+      - name: Signing mode
+        id: mode
+        env:
+          HAVE_CERT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && secrets.MACOS_CERT_PASSWORD != '' }}
+          HAVE_API_KEY: ${{ secrets.APPLE_API_KEY_P8_BASE64 != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER_ID != '' }}
+        run: |
+          if [ "$HAVE_CERT" = true ] && [ "$HAVE_API_KEY" = true ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+            echo "Signing with Developer ID and notarizing."
+          else
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=macOS signing::Signing secrets not available: keeping the ad-hoc signature (not notarized)."
+          fi
+      - name: Import Developer ID certificate into a temporary keychain
+        if: steps.mode.outputs.sign == 'true'
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          KC="$RUNNER_TEMP/3dearth-signing.keychain-db"
+          KC_PASS="$(uuidgen)"
+          echo "::add-mask::$KC_PASS"
+          echo "SIGN_KEYCHAIN=$KC" >> "$GITHUB_ENV"
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          printf '%s' "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KC" -f pkcs12 -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          # Apple's Developer ID G2 intermediate (public), pinned by SHA-256, so codesign can build the chain.
+          curl -fsSL --retry 3 https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          echo "f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a  $RUNNER_TEMP/DeveloperIDG2CA.cer" | shasum -a 256 -c -
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KC" || true
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PASS" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KC"
+      - name: Sign with Developer ID (hardened runtime, secure timestamp)
+        if: steps.mode.outputs.sign == 'true'
+        run: |
+          set -euo pipefail
+          codesign --force --options runtime --timestamp --keychain "$SIGN_KEYCHAIN" --sign "$MACOS_SIGN_IDENTITY" "$APP"
+          codesign --verify --deep --strict -vv "$APP"
+          codesign -dv --verbose=4 "$APP" 2>&1 | grep -E '^(Identifier=|Format=|CodeDirectory |Authority=|Timestamp=|TeamIdentifier=|Runtime Version=)'
+      - name: Notarize (notarytool)
+        id: notarize
+        if: steps.mode.outputs.sign == 'true'
+        timeout-minutes: 45
+        env:
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/notary"
+          KEY="$RUNNER_TEMP/notary/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$KEY"
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notary/3DEarth-notarize.zip"
+          set +e
+          xcrun notarytool submit "$RUNNER_TEMP/notary/3DEarth-notarize.zip" \
+            --key "$KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" \
+            --wait --timeout 40m --output-format json > "$RUNNER_TEMP/notary/result.json"
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/notary/result.json"; echo
+          id="$(plutil -extract id raw -o - "$RUNNER_TEMP/notary/result.json" 2>/dev/null || true)"
+          status="$(plutil -extract status raw -o - "$RUNNER_TEMP/notary/result.json" 2>/dev/null || true)"
+          echo "Notarization status: ${status:-unknown} (submission ${id:-none}, notarytool exit $rc)"
+          if [ -n "$id" ]; then
+            echo "---- notary log ----"
+            xcrun notarytool log "$id" --key "$KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" || true
+          fi
+          if [ "$status" != "Accepted" ]; then
+            echo "::error title=Notarization::status '${status:-unknown}' (expected Accepted)"
+            exit 1
+          fi
+          echo "::notice title=Notarization (app)::Accepted, submission $id"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - name: Staple + Gatekeeper check
+        id: staple
+        if: steps.mode.outputs.sign == 'true'
+        run: |
+          set -euo pipefail
+          xcrun stapler staple "$APP"
+          xcrun stapler validate "$APP"
+          codesign --verify --deep --strict -vv "$APP"
+          spctl -a -vv -t exec "$APP" 2>&1 | tee "$RUNNER_TEMP/spctl.txt"
+          grep -q 'accepted' "$RUNNER_TEMP/spctl.txt"
+          grep -q 'source=Notarized Developer ID' "$RUNNER_TEMP/spctl.txt"
+          echo "notarized=true" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test (launch on the desktop, snapshot + screenshot)
+        continue-on-error: true
+        timeout-minutes: 10
+        run: mac/test/smoke.sh "$APP" out/mac-shot
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-smoke-test
+          path: out/mac-shot/
+
+      - name: Zip
+        run: |
+          set -euo pipefail
+          cd out
+          ZIP="3D-Earth-mac-${{ steps.ver.outputs.version }}.zip"
+          ditto -c -k --keepParent "3D Earth.app" "$ZIP"
+          # Check the app as users will get it: unpacked from the release zip.
+          rm -rf zipcheck && mkdir zipcheck && ditto -x -k "$ZIP" zipcheck
+          codesign --verify --deep --strict -vv "zipcheck/3D Earth.app"
+          lipo -archs "zipcheck/3D Earth.app/Contents/MacOS/3DEarth"
+          if [ '${{ steps.staple.outputs.notarized }}' = true ]; then
+            xcrun stapler validate "zipcheck/3D Earth.app"
+            spctl -a -vv -t exec "zipcheck/3D Earth.app"
+          fi
+          rm -rf zipcheck
+          shasum -a 256 "$ZIP"
+
+      # Disk image (drag to Applications), signed, notarized and stapled on its own.
+      - name: Disk image
+        id: dmg
+        if: steps.staple.outputs.notarized == 'true'
+        continue-on-error: true
+        timeout-minutes: 45
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          DMG="out/3D-Earth-mac-${{ steps.ver.outputs.version }}.dmg"
+          rm -rf out/dmg-root && mkdir -p out/dmg-root
+          ditto "$APP" "out/dmg-root/3D Earth.app"
+          ln -s /Applications out/dmg-root/Applications
+          for i in 1 2 3; do
+            hdiutil create -volname "3D Earth" -srcfolder out/dmg-root -fs HFS+ -format UDZO -ov "$DMG" && break
+            sleep 5
+          done
+          codesign --force --timestamp --keychain "$SIGN_KEYCHAIN" --sign "$MACOS_SIGN_IDENTITY" "$DMG"
+          KEY="$RUNNER_TEMP/notary/AuthKey_${APPLE_API_KEY_ID}.p8"
+          set +e
+          xcrun notarytool submit "$DMG" --key "$KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" \
+            --wait --timeout 40m --output-format json > "$RUNNER_TEMP/notary/dmg.json"
+          set -e
+          cat "$RUNNER_TEMP/notary/dmg.json"; echo
+          status="$(plutil -extract status raw -o - "$RUNNER_TEMP/notary/dmg.json" 2>/dev/null || true)"
+          id="$(plutil -extract id raw -o - "$RUNNER_TEMP/notary/dmg.json" 2>/dev/null || true)"
+          if [ "$status" != "Accepted" ]; then echo "::warning title=Disk image::notarization status '${status:-unknown}'"; rm -f "$DMG"; exit 1; fi
+          echo "::notice title=Notarization (dmg)::Accepted, submission $id"
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          spctl -a -vv -t open --context context:primary-signature "$DMG"
+          shasum -a 256 "$DMG"
+          echo "dmg=true" >> "$GITHUB_OUTPUT"
+      - name: Drop an unfinished disk image
+        if: steps.dmg.outputs.dmg != 'true'
+        run: rm -f out/3D-Earth-mac-*.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 3D-Earth-${{ steps.ver.outputs.version }}-mac
+          path: |
+            out/3D-Earth-mac-*.zip
+            out/3D-Earth-mac-*.dmg
+          if-no-files-found: error
+      - name: Remove temporary keychain and API key
+        if: always()
+        run: |
+          if [ -n "${SIGN_KEYCHAIN:-}" ]; then security delete-keychain "$SIGN_KEYCHAIN" || true; fi
+          rm -rf "$RUNNER_TEMP/notary" "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+
+  # Every push to main (or a v* tag) publishes/updates the release for the
+  # current version, so there is always a plain download page under Releases.
+  # Pull requests and manual runs never reach this job.
+  release:
+    name: GitHub release
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [scene, windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: 3DEarth-*-win-x64
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: 3D-Earth-*-mac
+          merge-multiple: true
+      - name: Version
+        id: ver
+        run: |
+          ls -la dist
+          v='${{ env.VERSION }}'
+          if [ '${{ github.ref_type }}' = 'tag' ]; then v='${{ github.ref_name }}'; v="${v#v}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [ '${{ needs.mac.outputs.notarized }}' = true ]; then
+            note='It is signed with Developer ID and notarized by Apple, so it opens normally.'
+          else
+            note='This build is not notarized: if macOS refuses to open it, run `xattr -dr com.apple.quarantine "/Applications/3D Earth.app"` once.'
+          fi
+          echo "macnote=$note" >> "$GITHUB_OUTPUT"
+          if [ '${{ needs.mac.outputs.dmg }}' = true ]; then
+            echo "macfile=\`3D-Earth-mac-$v.dmg\` (open it and drag **3D Earth** to Applications) or \`3D-Earth-mac-$v.zip\` (unzip, then move **3D Earth** to Applications)" >> "$GITHUB_OUTPUT"
+          else
+            echo "macfile=\`3D-Earth-mac-$v.zip\`, unzip it and move **3D Earth** to Applications" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.version }}
           target_commitish: ${{ github.sha }}
           name: 3D Earth ${{ steps.ver.outputs.version }}
           make_latest: true
-          files: out/*
+          files: dist/*
           body: |
-            **Download `3DEarth-Setup-${{ steps.ver.outputs.version }}.exe` below and run it.**
+            **Windows: download `3DEarth-Setup-${{ steps.ver.outputs.version }}.exe` below and run it.**
 
             - Windows 10 (1809+) or Windows 11, x64. No administrator rights needed.
             - Windows SmartScreen may warn because the installer is not code-signed: click *More info → Run anyway*.
             - Needs the Microsoft Edge WebView2 Runtime (already on almost every PC; the installer offers the link if missing).
             - Prefer no installer? Use the portable `.zip`: unzip anywhere and run `3DEarth.exe`.
             - Already installed? The app updates itself: tray → *Check for updates* (it also checks automatically every 12 hours).
+
+            **macOS 13 Ventura or later (Apple silicon and Intel):** download ${{ steps.ver.outputs.macfile }}, then open it. ${{ steps.ver.outputs.macnote }}
+            - It lives in the menu bar (globe icon), with no Dock icon. *Open at login* is in that menu and in Settings.
 
             Built from ${{ github.sha }}.
