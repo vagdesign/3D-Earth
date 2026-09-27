@@ -2,8 +2,10 @@ import AppKit
 import IOKit.ps
 import ServiceManagement
 
+#if !APPSTORE
 /// Checks this repository's GitHub Releases for a newer macOS build. The Mac app
 /// does not replace itself: it tells you and opens the release page.
+/// Not part of the Mac App Store build: the App Store delivers its updates.
 @MainActor
 final class UpdateService: NSObject {
     struct Release {
@@ -86,6 +88,8 @@ final class UpdateService: NSObject {
         }
     }
 }
+
+#endif
 
 /// Power state used for power saving.
 enum Power {

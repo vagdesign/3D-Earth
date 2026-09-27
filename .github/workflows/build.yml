@@ -6,6 +6,16 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      appstore_upload:
+        description: 'Mac App Store: upload the validated .pkg to App Store Connect (needs the app record and the MAS signing secrets)'
+        type: boolean
+        default: false
+      appstore_build_number:
+        description: 'Mac App Store: CFBundleVersion for this build (empty = workflow run number)'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -324,6 +334,214 @@ jobs:
         run: |
           if [ -n "${SIGN_KEYCHAIN:-}" ]; then security delete-keychain "$SIGN_KEYCHAIN" || true; fi
           rm -rf "$RUNNER_TEMP/notary" "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+
+  # ---- Mac App Store variant ------------------------------------------------
+  # Every run (pull requests too, no secrets needed): build the sandboxed App
+  # Store variant (ad-hoc signed) and launch it on the runner to prove it works
+  # inside the App Sandbox.
+  mac-appstore-sandbox:
+    name: macOS App Store variant (sandboxed build + launch test)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: ver
+        run: |
+          v='${{ env.VERSION }}'
+          if [ '${{ github.ref_type }}' = 'tag' ]; then v='${{ github.ref_name }}'; v="${v#v}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Fetch Milky Way panorama
+        continue-on-error: true
+        run: curl -fsSL --retry 3 -A '3DEarth-build' -o web/assets/milkyway_eso.jpg https://cdn.eso.org/images/large/eso0932a.jpg
+      - name: Build 3D Earth.app (App Store variant, sandboxed, ad-hoc signed)
+        run: mac/build.sh --appstore ${{ steps.ver.outputs.version }} ${{ github.run_number }}
+      - name: Check bundle
+        run: |
+          set -euo pipefail
+          APP="out/appstore/3D Earth.app"
+          lipo -archs "$APP/Contents/MacOS/3DEarth"
+          plutil -lint "$APP/Contents/Info.plist"
+          test "$(plutil -extract ITSAppUsesNonExemptEncryption raw -o - "$APP/Contents/Info.plist")" = false
+          test "$(plutil -extract CFBundleVersion raw -o - "$APP/Contents/Info.plist")" = '${{ github.run_number }}'
+          iconutil -c iconset -o "$RUNNER_TEMP/icon.iconset" "$APP/Contents/Resources/AppIcon.icns"
+          sips -g pixelWidth "$RUNNER_TEMP/icon.iconset/icon_512x512@2x.png"
+          codesign --verify --strict -vv "$APP"
+      - name: Sandbox launch test
+        timeout-minutes: 10
+        run: mac/test/sandbox.sh "out/appstore/3D Earth.app" out/appstore-shot
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-appstore-sandbox-test
+          path: out/appstore-shot/
+
+  # Manual runs (Actions → Build → Run workflow) and v* tags only, never pull
+  # requests. Needs the Mac App Store signing secrets (skipped cleanly without
+  # them): signs with Apple Distribution + the provisioning profile, wraps the
+  # app in an installer package signed with Mac Installer Distribution and
+  # validates it with App Store Connect. Uploading is a separate, explicit
+  # choice (input "appstore_upload"), and only on manual runs.
+  mac-appstore:
+    name: Mac App Store package (sign, validate, optional upload)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    needs: [mac-appstore-sandbox]
+    runs-on: macos-latest
+    env:
+      APP: out/appstore/3D Earth.app
+      BUNDLE_ID: com.axeasy.3DEarth
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID || '7BMSHL4YZ6' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Signing mode
+        id: mode
+        env:
+          HAVE_MAS: ${{ secrets.MAS_APP_CERT_P12_BASE64 != '' && secrets.MAS_APP_CERT_PASSWORD != '' && secrets.MAS_INSTALLER_CERT_P12_BASE64 != '' && secrets.MAS_INSTALLER_CERT_PASSWORD != '' && secrets.MAS_PROVISIONING_PROFILE_BASE64 != '' }}
+          HAVE_API_KEY: ${{ secrets.APPLE_API_KEY_P8_BASE64 != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER_ID != '' }}
+        run: |
+          if [ "$HAVE_MAS" = true ] && [ "$HAVE_API_KEY" = true ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Mac App Store::Signing secrets (MAS_APP_CERT_*, MAS_INSTALLER_CERT_*, MAS_PROVISIONING_PROFILE_BASE64, APPLE_API_*) not all set: skipping the App Store package."
+          fi
+      - name: Version and build number
+        id: ver
+        if: steps.mode.outputs.sign == 'true'
+        run: |
+          v='${{ env.VERSION }}'
+          if [ '${{ github.ref_type }}' = 'tag' ]; then v='${{ github.ref_name }}'; v="${v#v}"; fi
+          # CFBundleVersion must grow with every upload: the workflow run number does,
+          # unless a manual run sets appstore_build_number.
+          b='${{ inputs.appstore_build_number }}'
+          [ -n "$b" ] || b='${{ github.run_number }}'
+          case "$b" in *[!0-9.]*|'') echo "::error::bad build number '$b'"; exit 1;; esac
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "build=$b" >> "$GITHUB_OUTPUT"
+          echo "Mac App Store build: version $v, build $b"
+      - name: Fetch Milky Way panorama
+        if: steps.mode.outputs.sign == 'true'
+        run: curl -fsSL --retry 3 -A '3DEarth-build' -o web/assets/milkyway_eso.jpg https://cdn.eso.org/images/large/eso0932a.jpg
+      - name: Build 3D Earth.app (App Store variant)
+        if: steps.mode.outputs.sign == 'true'
+        run: mac/build.sh --appstore ${{ steps.ver.outputs.version }} ${{ steps.ver.outputs.build }}
+      - name: Import Apple Distribution + Mac Installer Distribution certificates
+        if: steps.mode.outputs.sign == 'true'
+        env:
+          MAS_APP_CERT_P12_BASE64: ${{ secrets.MAS_APP_CERT_P12_BASE64 }}
+          MAS_APP_CERT_PASSWORD: ${{ secrets.MAS_APP_CERT_PASSWORD }}
+          MAS_INSTALLER_CERT_P12_BASE64: ${{ secrets.MAS_INSTALLER_CERT_P12_BASE64 }}
+          MAS_INSTALLER_CERT_PASSWORD: ${{ secrets.MAS_INSTALLER_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          KC="$RUNNER_TEMP/3dearth-mas.keychain-db"
+          KC_PASS="$(uuidgen)"
+          echo "::add-mask::$KC_PASS"
+          echo "MAS_KEYCHAIN=$KC" >> "$GITHUB_ENV"
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          printf '%s' "$MAS_APP_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/mas-app.p12"
+          printf '%s' "$MAS_INSTALLER_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/mas-installer.p12"
+          security import "$RUNNER_TEMP/mas-app.p12" -k "$KC" -f pkcs12 -P "$MAS_APP_CERT_PASSWORD" -T /usr/bin/codesign
+          security import "$RUNNER_TEMP/mas-installer.p12" -k "$KC" -f pkcs12 -P "$MAS_INSTALLER_CERT_PASSWORD" -T /usr/bin/productbuild -T /usr/bin/productsign
+          rm -f "$RUNNER_TEMP/mas-app.p12" "$RUNNER_TEMP/mas-installer.p12"
+          # Apple WWDR intermediates (public), pinned by SHA-256.
+          for c in "AppleWWDRCAG3 dcf21878c77f4198e4b4614f03d696d89c66c66008d4244e1b99161aac91601f" \
+                   "AppleWWDRCAG2 9ed4b3b88c6a339cf1387895bda9ca6ea31a6b5ce9edf7511845923b0c8ac94c"; do
+            set -- $c
+            curl -fsSL --retry 3 "https://www.apple.com/certificateauthority/$1.cer" -o "$RUNNER_TEMP/$1.cer"
+            echo "$2  $RUNNER_TEMP/$1.cer" | shasum -a 256 -c -
+            security import "$RUNNER_TEMP/$1.cer" -k "$KC" || true
+          done
+          security set-key-partition-list -S apple-tool:,apple:,codesign:,productbuild: -s -k "$KC_PASS" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p basic "$KC" | tee "$RUNNER_TEMP/identities.txt"
+          app_id="$(sed -nE 's/.*"((Apple Distribution|3rd Party Mac Developer Application): [^"]*)".*/\1/p' "$RUNNER_TEMP/identities.txt" | head -1)"
+          inst_id="$(sed -nE 's/.*"((3rd Party Mac Developer Installer|Mac Installer Distribution): [^"]*)".*/\1/p' "$RUNNER_TEMP/identities.txt" | head -1)"
+          [ -n "$app_id" ] || { echo "::error::no Apple Distribution identity in MAS_APP_CERT_P12_BASE64"; exit 1; }
+          [ -n "$inst_id" ] || { echo "::error::no Mac Installer Distribution identity in MAS_INSTALLER_CERT_P12_BASE64"; exit 1; }
+          echo "MAS_APP_IDENTITY=$app_id" >> "$GITHUB_ENV"
+          echo "MAS_INSTALLER_IDENTITY=$inst_id" >> "$GITHUB_ENV"
+          echo "App identity: $app_id / installer identity: $inst_id"
+      - name: Embed the provisioning profile
+        if: steps.mode.outputs.sign == 'true'
+        env:
+          MAS_PROVISIONING_PROFILE_BASE64: ${{ secrets.MAS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          P="$APP/Contents/embedded.provisionprofile"
+          printf '%s' "$MAS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$P"
+          security cms -D -i "$P" > "$RUNNER_TEMP/profile.plist"
+          plutil -p "$RUNNER_TEMP/profile.plist" | grep -E '"(Name|TeamName|ExpirationDate|application-identifier|com.apple.application-identifier|com.apple.developer.team-identifier)"' || true
+          PB=/usr/libexec/PlistBuddy
+          appid="$($PB -c 'Print :Entitlements:com.apple.application-identifier' "$RUNNER_TEMP/profile.plist")"
+          test "$appid" = "$TEAM_ID.$BUNDLE_ID" || { echo "::error::profile is for '$appid', expected $TEAM_ID.$BUNDLE_ID"; exit 1; }
+          if $PB -c 'Print :ProvisionedDevices' "$RUNNER_TEMP/profile.plist" >/dev/null 2>&1; then
+            echo "::error::this is a development profile (it lists devices); a Mac App Store profile is needed"; exit 1
+          fi
+          # The signing entitlements: the sandbox set + the identifiers from the profile.
+          cp mac/entitlements/appstore.entitlements "$RUNNER_TEMP/dist.entitlements"
+          $PB -c "Add :com.apple.application-identifier string $TEAM_ID.$BUNDLE_ID" "$RUNNER_TEMP/dist.entitlements"
+          $PB -c "Add :com.apple.developer.team-identifier string $TEAM_ID" "$RUNNER_TEMP/dist.entitlements"
+          plutil -p "$RUNNER_TEMP/dist.entitlements"
+      - name: Sign with Apple Distribution
+        if: steps.mode.outputs.sign == 'true'
+        run: |
+          set -euo pipefail
+          codesign --force --timestamp --keychain "$MAS_KEYCHAIN" --sign "$MAS_APP_IDENTITY" \
+            --entitlements "$RUNNER_TEMP/dist.entitlements" "$APP"
+          codesign --verify --deep --strict -vv "$APP"
+          codesign -dv --verbose=4 "$APP" 2>&1 | grep -E '^(Identifier=|Authority=|TeamIdentifier=|Timestamp=)'
+          codesign -d --entitlements - --xml "$APP" | plutil -p -
+      - name: Installer package (productbuild, Mac Installer Distribution)
+        id: pkg
+        if: steps.mode.outputs.sign == 'true'
+        run: |
+          set -euo pipefail
+          PKG="out/3D-Earth-mac-appstore-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.build }}.pkg"
+          productbuild --component "$APP" /Applications --sign "$MAS_INSTALLER_IDENTITY" --keychain "$MAS_KEYCHAIN" "$PKG"
+          pkgutil --check-signature "$PKG"
+          shasum -a 256 "$PKG"
+          echo "pkg=$PKG" >> "$GITHUB_OUTPUT"
+      - name: Validate with App Store Connect (altool)
+        if: steps.mode.outputs.sign == 'true'
+        timeout-minutes: 30
+        env:
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s' "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8"
+          # Needs the app record for com.axeasy.3DEarth in App Store Connect.
+          xcrun altool --validate-app -f "${{ steps.pkg.outputs.pkg }}" -t macos \
+            --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER_ID" --output-format normal
+          echo "::notice title=Mac App Store::validation passed for ${{ steps.pkg.outputs.pkg }}"
+      - name: Upload to App Store Connect
+        if: steps.mode.outputs.sign == 'true' && github.event_name == 'workflow_dispatch' && inputs.appstore_upload
+        timeout-minutes: 45
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcrun altool --upload-app -f "${{ steps.pkg.outputs.pkg }}" -t macos \
+            --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER_ID" --output-format normal
+          echo "::notice title=Mac App Store::uploaded build ${{ steps.ver.outputs.build }} (it appears in App Store Connect → TestFlight after processing)"
+      - uses: actions/upload-artifact@v4
+        if: steps.mode.outputs.sign == 'true'
+        with:
+          name: 3D-Earth-mac-appstore-pkg
+          path: out/3D-Earth-mac-appstore-*.pkg
+          if-no-files-found: error
+      - name: Remove temporary keychain and API key
+        if: always()
+        run: |
+          if [ -n "${MAS_KEYCHAIN:-}" ]; then security delete-keychain "$MAS_KEYCHAIN" || true; fi
+          rm -rf "$HOME/.appstoreconnect/private_keys" "$RUNNER_TEMP"/mas-*.p12
 
   # Every push to main (or a v* tag) publishes/updates the release for the
   # current version, so there is always a plain download page under Releases.

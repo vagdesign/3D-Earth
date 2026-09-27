@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Mac App Store build: App Sandbox with the two capabilities the app uses.
+  - network.client: HTTPS downloads of cloud maps, storm lists and Earth/Moon
+    textures (images and JSON only; the WebGL scene itself is bundled).
+  - files.user-selected.read-write: Settings > Export… / Import… (NSSavePanel /
+    NSOpenPanel), nothing else outside the container.
+  CI adds com.apple.application-identifier and com.apple.developer.team-identifier
+  (from the provisioning profile) when it signs for distribution; this file alone
+  is used for the ad-hoc sandbox test build.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.app-sandbox</key><true/>
+  <key>com.apple.security.network.client</key><true/>
+  <key>com.apple.security.files.user-selected.read-write</key><true/>
+</dict>
+</plist>

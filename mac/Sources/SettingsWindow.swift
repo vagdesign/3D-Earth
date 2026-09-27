@@ -170,7 +170,9 @@ struct SettingsView: View {
                 weatherTab.tabItem { Text("Weather") }
                 skyTab.tabItem { Text("Sky") }
                 performanceTab.tabItem { Text("Performance") }
+                #if !APPSTORE
                 updatesTab.tabItem { Text("Updates") }
+                #endif
             }
             .frame(minHeight: 380)
 
@@ -193,6 +195,10 @@ struct SettingsView: View {
                 Text(" · by ")
                 Link("Ax-Easy", destination: URL(string: "https://www.ax-easy.com")!)
                     .foregroundColor(Color(red: 1, green: 0.55, blue: 0.1))
+                #if APPSTORE
+                Text(" · ")
+                Link("Privacy policy", destination: AppInfo.privacyURL)
+                #endif
             }
             .font(.callout)
 
@@ -333,6 +339,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
+    #if !APPSTORE
     private var updatesTab: some View {
         Form {
             LabeledContent("Installed version") { Text(AppInfo.version) }
@@ -349,6 +356,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
     }
+    #endif
 }
 
 @MainActor

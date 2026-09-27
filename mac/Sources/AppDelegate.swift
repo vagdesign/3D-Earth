@@ -25,7 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var settingsController: SettingsWindowController?
     private var welcome: NSPanel?
     private let data = DataService()
+    #if !APPSTORE
     private let updates = UpdateService()
+    #endif
     private var watchdog: Timer?
 
     private var userPaused = false
@@ -48,7 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
 
         settings = AppSettings.load()
+        let sandbox = ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"].map { "sandboxed (\($0))" } ?? "not sandboxed"
         Log.info("Starting 3D Earth \(AppInfo.version) (\(archName())) on macOS \(ProcessInfo.processInfo.operatingSystemVersionString); " +
+                 "\(AppInfo.isAppStore ? "App Store build" : "Developer ID build"), \(sandbox), data in \(Paths.support.path); " +
                  "screens: \(NSScreen.screens.map { "\($0.frame) @\($0.backingScaleFactor)x" }.joined(separator: ", "))")
 
         buildStatusItem()
@@ -56,12 +60,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
         data.settings = { [weak self] in self?.settings ?? AppSettings() }
         data.onChanged = { [weak self] in self?.dataChanged() }
+        #if !APPSTORE
         updates.onAvailable = { [weak self] r in self?.updateAvailable(r) }
+        #endif
 
         syncWindows()
         watchdog = Timer.scheduledTimer(timeInterval: 3, target: self, selector: #selector(watchdogTick), userInfo: nil, repeats: true)
         data.start()
+        #if !APPSTORE
         if settings.autoCheckUpdates { updates.start() }
+        #endif
 
         if !settings.firstRunDone {
             settings.firstRunDone = true
@@ -70,6 +78,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         if AppInfo.hasArg("--settings") { showSettings() }
         if AppInfo.hasArg("--preview") { showPreview(fullscreen: false) }
+        if AppInfo.hasArg("--test-login-item") {
+            // CI: register and unregister the login item (SMAppService) once.
+            LoginItem.set(true)
+            LoginItem.set(false)
+        }
         if let path = AppInfo.argValue("--snapshot") {
             let delay = Double(AppInfo.argValue("--snapshot-delay") ?? "") ?? 20
             Task { @MainActor [weak self] in
@@ -222,7 +235,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let old = settings
         settings = s
         settings.save()
+        #if !APPSTORE
         if s.autoCheckUpdates { updates.start() } else { updates.stop() }
+        #endif
         if s.monitors != old.monitors { syncWindows() }
         windows.values.forEach { $0.scene.sendSettings(s) }
         preview?.scene.sendSettings(s)
@@ -265,6 +280,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         parts.append(data.lastCloudUpdate.map { "Clouds updated \(tf.string(from: $0))." } ?? "Clouds: waiting for the first download.")
         parts.append("Active tropical storms: \(data.lastStormCount).")
         parts.append(String(format: "Cloud history: %d map(s) over %.1f h (the 24 h loop needs about an hour or more).", data.historyCount, data.historyHours))
+        #if APPSTORE
+        parts.append("Version \(AppInfo.version).")
+        #else
         if let up = updates.available {
             parts.append("Update \(up.version) available.")
         } else if let lc = updates.lastCheck {
@@ -272,9 +290,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         } else {
             parts.append("Version \(AppInfo.version).")
         }
+        #endif
         if windows.values.contains(where: { $0.scene.paused }) { parts.append("Paused (power saving) on \(windows.values.filter { $0.scene.paused }.count) display(s).") }
         if !data.lastError.isEmpty { parts.append("Last error: \(data.lastError)") }
+        #if !APPSTORE
         if !updates.lastError.isEmpty { parts.append(updates.lastError) }
+        #endif
         return parts.joined(separator: " ")
     }
 
@@ -303,6 +324,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     // MARK: updates
 
+    #if APPSTORE
+    /// The App Store keeps the app up to date (App Review Guideline 2.4.5 (vii)).
+    private func checkForUpdatesInteractive() {}
+    #else
     private func updateAvailable(_ r: UpdateService.Release) {
         updateItem?.title = "Download update \(r.version)…"
     }
@@ -325,6 +350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             }
         }
     }
+    #endif
 
     // MARK: menu bar
 
@@ -404,8 +430,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let troubleRoot = NSMenuItem(title: "Troubleshooting", action: nil, keyEquivalent: "")
         troubleRoot.submenu = trouble
         menu.addItem(troubleRoot)
+        #if !APPSTORE
         updateItem = item("Check for updates…", #selector(updateMenuClicked))
         menu.addItem(updateItem!)
+        #endif
         menu.addItem(item("About 3D Earth", #selector(showAbout)))
         menu.addItem(.separator())
         menu.addItem(item("Stop wallpaper & quit", #selector(quit), key: "q"))
@@ -447,10 +475,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         syncWindows()
     }
 
+    #if !APPSTORE
     @objc private func updateMenuClicked() {
         if let r = updates.available { NSWorkspace.shared.open(r.pageURL); return }
         checkForUpdatesInteractive()
     }
+    #endif
 
     @objc private func quit() {
         closeWallpapers()
@@ -458,20 +488,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc private func showAbout() {
+        let privacyLink = AppInfo.isAppStore ? " · <a href=\"" + AppInfo.privacyURL.absoluteString + "\">Privacy policy</a>" : ""
         let html = """
         <div style="font-family: -apple-system, 'Helvetica Neue'; font-size: 11px; text-align: center; color: #888">
         Live 3D Earth wallpaper: current clouds, storms, true day and night, the Moon and planets.<br><br>
         Created by <a href="https://www.ax-easy.com">Vangelis Makridakis</a> &amp; <a href="https://claude.ai">Claude</a>
         · by <a href="https://www.ax-easy.com">Ax-Easy</a><br><br>
         <b>Data &amp; imagery</b><br>
-        Live cloud maps by Matt Eason (EUMETSAT / NOAA / JMA imagery)<br>
+        Live cloud maps by Matt Eason (CC0); contains modified EUMETSAT data<br>
         Storms: NOAA National Hurricane Center and GDACS (EC JRC / UN OCHA)<br>
         Earth, night lights and Moon: Solar System Scope (CC BY 4.0)<br>
         NASA Blue Marble Next Generation and Earth at Night (public domain)<br>
         Milky Way: ESO/S. Brunier (CC BY 4.0)<br>
-        Stars: d3-celestial / Yale Bright Star Catalogue (BSD 3-Clause)<br>
+        Stars: d3-celestial, Hipparcos/XHIP data (BSD 3-Clause)<br>
         three.js (MIT) · Astronomy Engine by Don Cross (MIT)<br><br>
-        <a href="https://github.com/\(AppInfo.feedRepo)">github.com/\(AppInfo.feedRepo)</a>
+        <a href="https://github.com/\(AppInfo.feedRepo)">github.com/\(AppInfo.feedRepo)</a>\(privacyLink)
         </div>
         """
         var options: [NSApplication.AboutPanelOptionKey: Any] = [

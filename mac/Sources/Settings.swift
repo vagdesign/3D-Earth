@@ -8,6 +8,15 @@ enum AppInfo {
     static let feedRepo = "vagdesign/3D-Earth"
     static let copyright = "© 2026 Ax-Easy - Vangelis Makridakis"
     static let showSettingsNotification = Notification.Name("com.axeasy.3DEarth.showSettings")
+    static let privacyURL = URL(string: "https://www.ax-easy.com/3d-earth/privacy")!
+
+    /// Mac App Store build (compiled with -D APPSTORE by `mac/build.sh --appstore`):
+    /// sandboxed, and updates come from the App Store, so there is no update check.
+    #if APPSTORE
+    static let isAppStore = true
+    #else
+    static let isAppStore = false
+    #endif
 
     static func hasArg(_ a: String) -> Bool { CommandLine.arguments.contains(a) }
 
