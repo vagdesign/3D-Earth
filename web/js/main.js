@@ -13,6 +13,18 @@ import { createControls } from './controls.js';
 const host = window.chrome && window.chrome.webview ? window.chrome.webview : null;
 const hostLog = (message) => { try { host && host.postMessage({ type: 'log', message: String(message) }); } catch { /* ignore */ } };
 window.addEventListener('error', (e) => hostLog(`error: ${e.message} at ${e.filename}:${e.lineno}`));
+{
+  // Forward WebGL / three.js warnings and errors (shader compile errors, incomplete
+  // framebuffers...) to the host log, where they can be read on the user's machine.
+  let forwarded = 0;
+  for (const level of ['error', 'warn']) {
+    const orig = console[level].bind(console);
+    console[level] = (...args) => {
+      orig(...args);
+      if (forwarded++ < 60) hostLog(`console.${level}: ${args.map((a) => (a && a.message) || String(a)).join(' ').slice(0, 2000)}`);
+    };
+  }
+}
 window.addEventListener('unhandledrejection', (e) => hostLog(`unhandled: ${e.reason && (e.reason.stack || e.reason.message) || e.reason}`));
 const query = new URLSearchParams(location.search);
 const DATA = 'data/';
@@ -47,7 +59,20 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 // ---- renderer ----
 const canvas = document.getElementById('scene');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: query.has('capture') });
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: query.has('capture') });
+} catch (e) {
+  hostLog(`WebGL 2 is not available: ${e && e.message}`);
+  document.body.insertAdjacentHTML('beforeend',
+    '<div style="position:fixed;inset:0;display:grid;place-items:center;color:#9ab;font:15px system-ui">' +
+    '3D Earth needs WebGL 2, which this graphics driver does not provide.</div>');
+  throw e;
+}
+renderer.debug.onShaderError = (gl, program, vs, fs) => {
+  const log = [gl.getProgramInfoLog(program), gl.getShaderInfoLog(vs), gl.getShaderInfoLog(fs)].filter(Boolean).join(' | ');
+  hostLog(`shader error: ${log.slice(0, 3000)}`);
+};
 renderer.autoClear = true;
 renderer.setClearColor(0x000000, 1);
 setMaxAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
@@ -137,16 +162,51 @@ function resize() {
   // Anti-aliasing: MSAA 0/2/4/8; "8" also supersamples 1.33x, which smooths the
   // shader-level (cloud) edges MSAA cannot reach.
   const aa = Math.round(settings.antialias);
-  const samples = Math.min(aa >= 8 ? 8 : aa >= 4 ? 4 : aa >= 2 ? 2 : 0, renderer.capabilities.maxSamples || 4);
+  const samples = Math.min(aa >= 8 ? 8 : aa >= 4 ? 4 : aa >= 2 ? 2 : 0, renderer.capabilities.maxSamples ?? 0);
   const ss = aa >= 8 ? 1.33 : 1;
   const w = Math.max(1, Math.round(width * pixelRatio * ss)), h = Math.max(1, Math.round(height * pixelRatio * ss));
   post.material.uniforms.uTexel.value.set(1 / Math.max(1, width * pixelRatio), 1 / Math.max(1, height * pixelRatio));
   post.material.uniforms.uSS.value = ss > 1 ? 1 : 0;
-  if (!rt || rt.width !== w || rt.height !== h || rt.samples !== samples) {
+  if (!rt || rt.width !== w || rt.height !== h || rt.requested !== samples) {
     if (rt) rt.dispose();
-    rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples, depthBuffer: true });
+    rt = createSceneTarget(w, h, samples);
+    rt.requested = samples;
     post.material.uniforms.tScene.value = rt.texture;
   }
+}
+
+// The scene renders into a floating-point (HDR) target, tone-mapped afterwards.
+// Some GPUs/drivers (e.g. AMD FirePro D700 on newer macOS) cannot render to float
+// textures or multisampled targets: fall back step by step instead of drawing black.
+let ldrMode = false;
+const LDR_SCALE = 0.35;              // keeps sunlit HDR values below 1.0 in an 8-bit target
+let targetLogged = '';
+function targetComplete(t) {
+  const gl = renderer.getContext();
+  renderer.setRenderTarget(t);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  renderer.setRenderTarget(null);
+  return ok;
+}
+function createSceneTarget(w, h, samples) {
+  const floatOK = !query.has('ldr') &&       // ?ldr forces the fallback (testing)
+    (renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float'));
+  const tries = [];
+  if (floatOK) tries.push([THREE.HalfFloatType, samples], [THREE.HalfFloatType, 0]);
+  tries.push([THREE.UnsignedByteType, samples], [THREE.UnsignedByteType, 0]);
+  for (const [type, n] of tries) {
+    const t = new THREE.WebGLRenderTarget(w, h, { type, samples: n, depthBuffer: true });
+    if (targetComplete(t)) {
+      ldrMode = type === THREE.UnsignedByteType;
+      const desc = `${ldrMode ? '8-bit (LDR fallback)' : 'half-float HDR'} ${n}x MSAA`;
+      if (desc !== targetLogged) { hostLog(`scene target: ${desc}${floatOK ? '' : '; float render targets unsupported'}`); targetLogged = desc; }
+      return t;
+    }
+    t.dispose();
+  }
+  hostLog('scene target: no render target is complete on this GPU; drawing anyway');
+  ldrMode = true;
+  return new THREE.WebGLRenderTarget(w, h, { type: THREE.UnsignedByteType, samples: 0, depthBuffer: true });
 }
 window.addEventListener('resize', () => { resize(); render(); });
 resize();
@@ -289,9 +349,13 @@ function render() {
   shared.uSunDir.value.copy(eph.sunDir);
   shared.uCamPos.value.copy(camera.position);
   earth.update(now, settings);
+  // 8-bit fallback target: scale scene radiance down and exposure up by the same factor.
+  const k = ldrMode ? LDR_SCALE : 1;
+  shared.uSun.value = 2.1 * k;
+  earth.surface.material.uniforms.uLightsI.value *= k;
   moon.update(eph, settings);
-  sky.update(camera, eph, settings, pixelRatio);
-  post.material.uniforms.uExposure.value = settings.exposure;
+  sky.update(camera, eph, ldrMode ? { ...settings, stars: settings.stars * k, milkyWay: settings.milkyWay * k } : settings, pixelRatio);
+  post.material.uniforms.uExposure.value = settings.exposure / k;
 
   renderer.setRenderTarget(rt);
   renderer.render(scene, camera);
