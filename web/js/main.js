@@ -27,6 +27,8 @@ window.addEventListener('error', (e) => hostLog(`error: ${e.message} at ${e.file
 }
 window.addEventListener('unhandledrejection', (e) => hostLog(`unhandled: ${e.reason && (e.reason.stack || e.reason.message) || e.reason}`));
 const query = new URLSearchParams(location.search);
+let gpuSafe = 0;
+try { gpuSafe = Math.min(2, Number(query.get('safe') ?? localStorage.getItem('3de.gpuSafe')) || 0); } catch { /* ignore */ }
 const DATA = 'data/';
 const debug = query.has('debug');
 const interactive = query.has('interactive');
@@ -81,7 +83,21 @@ setMaxAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
   const dbg = gl.getExtension('WEBGL_debug_renderer_info');
   hostLog(`WebGL ${renderer.capabilities.isWebGL2 ? '2' : '1'}; GPU: ${dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown'}; ` +
           `max texture ${renderer.capabilities.maxTextureSize}; ${window.innerWidth}x${window.innerHeight} @${window.devicePixelRatio}`);
-  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); hostLog('WebGL context lost'); });
+  // A GPU that resets under load (e.g. AMD FirePro D700 on patched macOS) loses the
+  // context and WebKit may never restore it: reload in a lighter "safe" mode instead,
+  // remembered on this machine (level 1: no MSAA, 1x pixels, 30 fps; 2: also 8-bit, 0.75x).
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    const next = Math.min(2, gpuSafe + 1);
+    hostLog(`WebGL context lost (safe mode ${gpuSafe}); reloading in safe mode ${next}`);
+    setTimeout(() => {
+      if (!renderer.getContext().isContextLost()) return;
+      try { localStorage.setItem('3de.gpuSafe', String(next)); } catch { /* ignore */ }
+      const u = new URL(location.href);
+      u.searchParams.set('safe', String(next));
+      location.replace(u.href);
+    }, 3000);
+  });
   canvas.addEventListener('webglcontextrestored', () => { hostLog('WebGL context restored; reloading'); location.reload(); });
 }
 
@@ -156,17 +172,19 @@ let width = 0, height = 0, pixelRatio = 1;
 function resize() {
   const q = { low: 0.75, medium: 1, high: 1 }[settings.quality] ?? 1;
   pixelRatio = (window.devicePixelRatio || 1) * THREE.MathUtils.clamp(settings.renderScale, 0.4, 2) * q;
+  if (gpuSafe) pixelRatio = Math.min(pixelRatio, gpuSafe >= 2 ? 0.75 : 1);
   width = window.innerWidth; height = window.innerHeight;
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(width, height, false);
   // Anti-aliasing: MSAA 0/2/4/8; "8" also supersamples 1.33x, which smooths the
   // shader-level (cloud) edges MSAA cannot reach.
-  const aa = Math.round(settings.antialias);
+  const aa = gpuSafe ? 0 : Math.round(settings.antialias);
   const samples = Math.min(aa >= 8 ? 8 : aa >= 4 ? 4 : aa >= 2 ? 2 : 0, renderer.capabilities.maxSamples ?? 0);
   const ss = aa >= 8 ? 1.33 : 1;
   const w = Math.max(1, Math.round(width * pixelRatio * ss)), h = Math.max(1, Math.round(height * pixelRatio * ss));
   post.material.uniforms.uTexel.value.set(1 / Math.max(1, width * pixelRatio), 1 / Math.max(1, height * pixelRatio));
   post.material.uniforms.uSS.value = ss > 1 ? 1 : 0;
+  if (renderer.getContext().isContextLost()) return;
   if (!rt || rt.width !== w || rt.height !== h || rt.requested !== samples) {
     if (rt) rt.dispose();
     rt = createSceneTarget(w, h, samples);
@@ -189,7 +207,7 @@ function targetComplete(t) {
   return ok;
 }
 function createSceneTarget(w, h, samples) {
-  const floatOK = !query.has('ldr') &&       // ?ldr forces the fallback (testing)
+  const floatOK = !query.has('ldr') && gpuSafe < 2 &&       // ?ldr forces the fallback (testing)
     (renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float'));
   const tries = [];
   if (floatOK) tries.push([THREE.HalfFloatType, samples], [THREE.HalfFloatType, 0]);
@@ -390,7 +408,7 @@ let lastFrame = 0, frames = 0, fpsShown = 0, fpsT = 0;
 function loop(now) {
   if (paused) return;
   requestAnimationFrame(loop);
-  const interval = 1000 / THREE.MathUtils.clamp(controls && !query.has('fps') ? Math.max(settings.fps, 60) : settings.fps, 1, 240);
+  const interval = 1000 / THREE.MathUtils.clamp(controls && !query.has('fps') ? Math.max(settings.fps, 60) : gpuSafe ? Math.min(settings.fps, 30) : settings.fps, 1, 240);
   const elapsed = now - lastFrame;
   if (elapsed < interval - 1) return;
   // Keep the cadence exact (e.g. 120 fps on a 144 Hz monitor) instead of drifting.

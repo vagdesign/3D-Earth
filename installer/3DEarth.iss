@@ -4,7 +4,7 @@
 #define AppName "3D Earth"
 #define AppExe "3DEarth.exe"
 #ifndef AppVersion
-  #define AppVersion "0.7.2"
+  #define AppVersion "0.7.3"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\publish"

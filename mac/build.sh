@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 VARIANT=developer-id
 if [ "${1:-}" = "--appstore" ]; then VARIANT=appstore; shift; fi
-VERSION="${1:-0.7.2}"
+VERSION="${1:-0.7.3}"
 BUILD="${2:-$VERSION}"
 MIN_MACOS=12.0   # Developer ID build: Monterey and later (Mac Pro 2013 etc. run 12 natively)
 SWIFT_DEFINES=()
