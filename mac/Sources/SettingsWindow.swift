@@ -131,7 +131,6 @@ private struct Row<Content: View>: View {
         } else {
             HStack {
                 if !title.isEmpty { Text(title) }
-                Spacer()
                 content
             }
         }
@@ -327,7 +326,9 @@ struct SettingsView: View {
                 }
             }
             TextField("Cloud map URL", text: $m.s.customCloudUrl, prompt: Text("optional: https URL of an equirectangular cloud map (JPG/PNG)"))
+                .frame(maxWidth: 520)
         }
+        .groupedForm()
         .groupedForm()
     }
 

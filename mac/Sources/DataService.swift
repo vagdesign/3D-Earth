@@ -95,7 +95,9 @@ final class DataService: NSObject {
         case "builtin":
             return ("builtin", [])
         default:
-            return ("sss", ["https://www.solarsystemscope.com/textures/download/8k_earth_daymap.jpg"])
+            // Falls back to this month's NASA Blue Marble when Solar System Scope refuses.
+            return ("sss", ["https://www.solarsystemscope.com/textures/download/8k_earth_daymap.jpg"]
+                    + surfaceSource("bluemarble", month: month).urls)
         }
     }
 
@@ -110,7 +112,9 @@ final class DataService: NSObject {
         if force || (m.d["texturesSet"] as? String) != wanted {
             var any = false
             // Solar System Scope textures (CC BY 4.0), based on NASA imagery.
-            if await downloadFirst(["https://www.solarsystemscope.com/textures/download/8k_earth_nightmap.jpg"],
+            if await downloadFirst(["https://www.solarsystemscope.com/textures/download/8k_earth_nightmap.jpg",
+                                    // NASA Black Marble 2016 (public domain) when Solar System Scope refuses.
+                                    "https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/BlackMarble_2016_3km.jpg"],
                                    to: data.appendingPathComponent("earth_lights.jpg"), maxWidth: earthWidth, grayscale: true) { any = true }
             if await downloadFirst(["https://www.solarsystemscope.com/textures/download/2k_moon.jpg",
                                     "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_poles_1k.jpg"],
@@ -379,8 +383,18 @@ final class DataService: NSObject {
 
     private func downloadImage(_ s: String, minBytes: Int) async throws -> Data? {
         guard let url = URL(string: s) else { return nil }
-        let (data, resp) = try await session.data(from: url)
+        var req = URLRequest(url: url)
+        // Solar System Scope answers direct downloads with a small HTML page unless
+        // the request looks like it came from its texture page.
+        if url.host?.hasSuffix("solarsystemscope.com") == true {
+            req.setValue("https://www.solarsystemscope.com/textures/", forHTTPHeaderField: "Referer")
+            req.setValue("image/avif,image/webp,image/jpeg,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        }
+        let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { return nil }
+        if data.count < minBytes, let body = String(data: data.prefix(300), encoding: .utf8) {
+            Log.info("\(s) -> \(http.statusCode), body: \(body.replacingOccurrences(of: "\n", with: " "))")
+        }
         if !(200..<300).contains(http.statusCode) {
             Log.info("\(s) -> HTTP \(http.statusCode)")
             return nil
