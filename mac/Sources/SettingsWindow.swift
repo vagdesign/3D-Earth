@@ -115,6 +115,36 @@ final class SettingsModel: ObservableObject {
     }
 }
 
+/// A labelled settings row: LabeledContent on macOS 13+, a plain HStack on macOS 12.
+private struct Row<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        if #available(macOS 13, *) {
+            LabeledContent(title) { content }
+        } else {
+            HStack {
+                if !title.isEmpty { Text(title) }
+                Spacer()
+                content
+            }
+        }
+    }
+}
+
+private extension View {
+    /// Grouped form style on macOS 13+; the default form style on macOS 12.
+    @ViewBuilder func groupedForm() -> some View {
+        if #available(macOS 13, *) { formStyle(.grouped) } else { self }
+    }
+}
+
 private struct SliderRow: View {
     let title: String
     @Binding var value: Double
@@ -122,7 +152,7 @@ private struct SliderRow: View {
     var format: (Double) -> String = { "\(Int(($0 * 100).rounded())) %" }
 
     var body: some View {
-        LabeledContent(title) {
+        Row(title) {
             HStack(spacing: 8) {
                 Slider(value: $value, in: range)
                     .frame(minWidth: 220)
@@ -223,7 +253,7 @@ struct SettingsView: View {
                 Text("Above my location").tag("home")
                 Text("Sunrise behind the Earth").tag("sunrise")
             }
-            LabeledContent("My location") {
+            Row("My location") {
                 HStack {
                     Text("Lat")
                     TextField("Lat", value: $m.s.homeLat, formatter: SettingsView.number).frame(width: 70).labelsHidden()
@@ -242,7 +272,7 @@ struct SettingsView: View {
                 Text("4×").tag(4.0)
             }
         }
-        .formStyle(.grouped)
+        .groupedForm()
     }
 
     private var surfaceTab: some View {
@@ -259,7 +289,7 @@ struct SettingsView: View {
             SliderRow(title: "City lights at night", value: $m.s.lightsBrightness, range: 0...2.5)
             SliderRow(title: "City lights flicker", value: $m.s.lightsFlicker, range: 0...1)
         }
-        .formStyle(.grouped)
+        .groupedForm()
     }
 
     private var motionTab: some View {
@@ -270,10 +300,10 @@ struct SettingsView: View {
                 Text("Time-lapse").tag("timelapse")
                 Text("Day & night time-lapse above my location").tag("daylapse")
             }
-            LabeledContent("Spin: seconds per 360°") {
+            Row("Spin: seconds per 360°") {
                 TextField("Seconds", value: $m.s.spinSeconds, formatter: SettingsView.number).frame(width: 90).labelsHidden()
             }
-            LabeledContent("Time-lapse speed (×)") {
+            Row("Time-lapse speed (×)") {
                 TextField("Speed", value: $m.s.timeSpeed, formatter: SettingsView.number).frame(width: 90).labelsHidden()
             }
             Toggle("During time-lapse, replay the clouds of the last 24 hours", isOn: $m.s.cloudLoop)
@@ -281,7 +311,7 @@ struct SettingsView: View {
             DatePicker("Date and time (local)", selection: $m.customDate)
                 .disabled(!m.useCustomTime)
         }
-        .formStyle(.grouped)
+        .groupedForm()
     }
 
     private var weatherTab: some View {
@@ -291,14 +321,14 @@ struct SettingsView: View {
             SliderRow(title: "Cloud thickness", value: $m.s.cloudCover, range: 0.4...2)
             SliderRow(title: "Cloud detail (billows)", value: $m.s.cloudDetail, range: 0...1)
             Toggle("Label active storms (hurricanes, typhoons, cyclones)", isOn: $m.s.storms)
-            LabeledContent("Update every (minutes)") {
+            Row("Update every (minutes)") {
                 Stepper(value: $m.s.weatherRefreshMinutes, in: 15...720, step: 15) {
                     Text("\(m.s.weatherRefreshMinutes)").monospacedDigit()
                 }
             }
             TextField("Cloud map URL", text: $m.s.customCloudUrl, prompt: Text("optional: https URL of an equirectangular cloud map (JPG/PNG)"))
         }
-        .formStyle(.grouped)
+        .groupedForm()
     }
 
     private var skyTab: some View {
@@ -309,7 +339,7 @@ struct SettingsView: View {
             SliderRow(title: "Milky Way", value: $m.s.milkyWay, range: 0...1)
             SliderRow(title: "Brightness", value: $m.s.exposure, range: 0.5...2)
         }
-        .formStyle(.grouped)
+        .groupedForm()
     }
 
     private var performanceTab: some View {
@@ -336,15 +366,15 @@ struct SettingsView: View {
             Toggle("Pause on battery power", isOn: $m.s.pauseOnBattery)
             Toggle("Open at login", isOn: $m.openAtLogin)
         }
-        .formStyle(.grouped)
+        .groupedForm()
     }
 
     #if !APPSTORE
     private var updatesTab: some View {
         Form {
-            LabeledContent("Installed version") { Text(AppInfo.version) }
+            Row("Installed version") { Text(AppInfo.version) }
             Toggle("Check for updates automatically", isOn: $m.s.autoCheckUpdates)
-            LabeledContent("") {
+            Row("") {
                 HStack {
                     Button("Check for updates now") { m.checkUpdates() }
                     Link("All releases", destination: URL(string: "https://github.com/\(AppInfo.feedRepo)/releases")!)
@@ -354,7 +384,7 @@ struct SettingsView: View {
                 .font(.callout)
                 .foregroundColor(.secondary)
         }
-        .formStyle(.grouped)
+        .groupedForm()
     }
     #endif
 }
@@ -372,7 +402,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         super.init(window: window)
         let host = NSHostingController(rootView: SettingsView(m: model, close: { [weak window] in window?.close() }))
-        host.sizingOptions = [.preferredContentSize]
+        if #available(macOS 13, *) { host.sizingOptions = [.preferredContentSize] }
         window.contentViewController = host
         window.delegate = self
         window.center()

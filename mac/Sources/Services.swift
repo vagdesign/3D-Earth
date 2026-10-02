@@ -101,20 +101,63 @@ enum Power {
     }
 }
 
-/// "Open at login" through SMAppService (macOS 13+): no helper app, no launch agent file.
+/// "Open at login": SMAppService on macOS 13+ (no helper app, no launch agent
+/// file); on macOS 12 a per-user LaunchAgent that opens the app at login.
 enum LoginItem {
-    static var status: SMAppService.Status { SMAppService.mainApp.status }
-    static var isEnabled: Bool { status == .enabled }
+    static var isEnabled: Bool {
+        if #available(macOS 13, *) { return SMAppService.mainApp.status == .enabled }
+        return FileManager.default.fileExists(atPath: agentURL.path)
+    }
+
+    /// Registered but waiting for the user to allow it in System Settings (macOS 13+).
+    static var requiresApproval: Bool {
+        if #available(macOS 13, *) { return SMAppService.mainApp.status == .requiresApproval }
+        return false
+    }
 
     static func set(_ on: Bool) {
+        if #available(macOS 13, *) { setService(on) } else { setAgent(on) }
+    }
+
+    @available(macOS 13, *)
+    private static func setService(_ on: Bool) {
+        let app = SMAppService.mainApp
         do {
             if on {
-                if status != .enabled { try SMAppService.mainApp.register() }
-                if status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
-            } else if status == .enabled || status == .requiresApproval {
-                try SMAppService.mainApp.unregister()
+                if app.status != .enabled { try app.register() }
+                if app.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
+            } else if app.status == .enabled || app.status == .requiresApproval {
+                try app.unregister()
             }
-            Log.info("Open at login: \(on) (status \(status.rawValue))")
+            Log.info("Open at login: \(on) (status \(app.status.rawValue))")
+        } catch {
+            Log.error("Open at login", error)
+        }
+    }
+
+    private static var agentURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+            .appendingPathComponent("\(Bundle.main.bundleIdentifier ?? "com.axeasy.3DEarth").plist")
+    }
+
+    private static func setAgent(_ on: Bool) {
+        let url = agentURL
+        do {
+            if on {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let plist: [String: Any] = [
+                    "Label": url.deletingPathExtension().lastPathComponent,
+                    "ProgramArguments": ["/usr/bin/open", Bundle.main.bundlePath],
+                    "RunAtLoad": true,
+                    "LimitLoadToSessionType": "Aqua",
+                ]
+                let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+                try data.write(to: url, options: .atomic)
+            } else if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            Log.info("Open at login: \(on) (launch agent \(url.path))")
         } catch {
             Log.error("Open at login", error)
         }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "3D Earth.app" (universal: Apple silicon + Intel, macOS 13+). Needs
+# Builds "3D Earth.app" (universal: Apple silicon + Intel; macOS 12+, App Store build 13+). Needs
 # Xcode or the Command Line Tools.
 #
 #   mac/build.sh [version]                        → out/3D Earth.app (Developer ID / GitHub build)
@@ -13,14 +13,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 VARIANT=developer-id
 if [ "${1:-}" = "--appstore" ]; then VARIANT=appstore; shift; fi
-VERSION="${1:-0.7.1}"
+VERSION="${1:-0.7.2}"
 BUILD="${2:-$VERSION}"
-MIN_MACOS=13.0
+MIN_MACOS=12.0   # Developer ID build: Monterey and later (Mac Pro 2013 etc. run 12 natively)
 SWIFT_DEFINES=()
 if [ "$VARIANT" = appstore ]; then
   APP="out/appstore/3D Earth.app"
   TMP=out/appstore-build
   SWIFT_DEFINES=(-D APPSTORE)
+  MIN_MACOS=13.0   # App Store build stays on SMAppService (sandboxed)
 else
   APP="out/3D Earth.app"
   TMP=out/mac-build
@@ -36,7 +37,7 @@ for arch in arm64 x86_64; do
 done
 lipo -create "$TMP/3DEarth-arm64" "$TMP/3DEarth-x86_64" -output "$APP/Contents/MacOS/3DEarth"
 
-sed -e "s/__VERSION__/$VERSION/g" -e "s/__BUILD__/$BUILD/g" mac/Info.plist > "$APP/Contents/Info.plist"
+sed -e "s/__VERSION__/$VERSION/g" -e "s/__BUILD__/$BUILD/g" -e "s/__MIN_MACOS__/$MIN_MACOS/g" mac/Info.plist > "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 if [ "$VARIANT" = appstore ]; then
   PLIST="$APP/Contents/Info.plist"

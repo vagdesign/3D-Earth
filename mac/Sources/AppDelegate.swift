@@ -447,7 +447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         labelsItem?.state = settings.labels ? .on : .off
         stormsItem?.state = settings.storms ? .on : .off
         pauseItem?.state = userPaused ? .on : .off
-        loginItem?.state = LoginItem.isEnabled ? .on : (LoginItem.status == .requiresApproval ? .mixed : .off)
+        loginItem?.state = LoginItem.isEnabled ? .on : (LoginItem.requiresApproval ? .mixed : .off)
     }
 
     @objc private func setViewFromMenu(_ sender: NSMenuItem) {

@@ -45,7 +45,7 @@ You only install once. After that, the app keeps itself up to date:
 2. Open the disk image and drag **3D Earth** to **Applications** (from the zip: unzip it, then move **3D Earth** to Applications).
 3. Open **3D Earth** from Applications or Launchpad. The Earth appears behind your desktop icons on every display and every Space, and a globe icon appears in the menu bar. There is no Dock icon.
 
-Requirements: macOS 13 Ventura or later, on Apple silicon or Intel (one universal app). The app is signed with Developer ID and notarized by Apple, so it opens without warnings.
+Requirements: macOS 12 Monterey or later, on Apple silicon or Intel (one universal app; the Mac App Store version needs macOS 13). The app is signed with Developer ID and notarized by Apple, so it opens without warnings.
 
 - **Menu bar globe:** the same View, Motion, Explore, labels, Update weather now and Pause items as on Windows, plus **Open at login** (off until you turn it on), **Settings…** (the same tabs as on Windows), **About 3D Earth** (credits) and **Stop wallpaper & quit**. Opening the app again while it runs opens Settings.
 - **Power saving:** rendering pauses when windows or a full-screen app completely cover the desktop, while the screen is locked, the screen saver runs or the displays sleep, and (optional) on battery.
@@ -103,7 +103,7 @@ Power saving (on by default): rendering pauses when a maximised or full-screen a
  ├─ DataService       downloads clouds, storms and HD textures to %LOCALAPPDATA%\3D Earth\data
  └─ TrayContext       tray menu, settings, watchdog (Explorer restarts, display changes), power saving
 
-3D Earth.app (macOS 13+, Swift / AppKit, universal arm64 + x86_64)   mac/
+3D Earth.app (macOS 12+, Swift / AppKit, universal arm64 + x86_64)   mac/
  ├─ WallpaperWindow   one borderless window per display at desktop level (below the icons),
  │                    on all Spaces, ignores the mouse; hosts WKWebView
  ├─ SchemeHandler     serves ./web and the data folder from one origin (earth://local)

@@ -42,13 +42,22 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         let ext = full.pathExtension.lowercased()
         if (ext == "js" || ext == "mjs") && full.path.contains("/js/"), var text = String(data: body, encoding: .utf8) {
             // Import maps need Safari 16.4; resolve the bare 'three' specifier here so
-            // every macOS 13 WebKit can load the modules.
+            // every macOS 12+ WebKit can load the modules.
             text = text.replacingOccurrences(of: "from 'three'", with: "from '/lib/three.module.js'")
                 .replacingOccurrences(of: "from \"three\"", with: "from \"/lib/three.module.js\"")
             body = Data(text.utf8)
+        } else if rel == "lib/three.core.js", let text = String(data: body, encoding: .utf8) {
+            // Class static blocks need Safari 16.4 (macOS 12 can ship older WebKit);
+            // three only uses them for `X.prototype.isX = true`, so serve getters instead.
+            body = Data(SchemeHandler.staticBlocks.stringByReplacingMatches(
+                in: text, range: NSRange(text.startIndex..., in: text),
+                withTemplate: "get $1() { return true; }").utf8)
         }
         respond(urlSchemeTask, url: url, status: 200, type: SchemeHandler.mimeType(ext), body: body)
     }
+
+    private static let staticBlocks = try! NSRegularExpression(
+        pattern: #"static\s*\{\s*(?:/\*[\s\S]*?\*/\s*)?\w+\.prototype\.(\w+)\s*=\s*true;\s*\}"#)
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
 

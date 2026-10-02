@@ -21,7 +21,7 @@ permissions:
   contents: write
 
 env:
-  VERSION: 0.7.1
+  VERSION: 0.7.2
 
 jobs:
   scene:
@@ -596,7 +596,7 @@ jobs:
             - Prefer no installer? Use the portable `.zip`: unzip anywhere and run `3DEarth.exe`.
             - Already installed? The app updates itself: tray → *Check for updates* (it also checks automatically every 12 hours).
 
-            **macOS 13 Ventura or later (Apple silicon and Intel):** download ${{ steps.ver.outputs.macfile }}, then open it. ${{ steps.ver.outputs.macnote }}
+            **macOS 12 Monterey or later (Apple silicon and Intel):** download ${{ steps.ver.outputs.macfile }}, then open it. ${{ steps.ver.outputs.macnote }}
             - It lives in the menu bar (globe icon), with no Dock icon. *Open at login* is in that menu and in Settings.
 
             Built from ${{ github.sha }}.
