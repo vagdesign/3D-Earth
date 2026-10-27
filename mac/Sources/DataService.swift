@@ -188,7 +188,8 @@ final class DataService: NSObject {
                 guard let bytes = try await downloadImage(u, minBytes: 30_000) else { continue }
                 let hash = String(SHA256.hash(data: bytes).map { String(format: "%02X", $0) }.joined().prefix(16))
                 if (m.d["cloudsHash"] as? String) == hash && FileManager.default.fileExists(atPath: file.path) {
-                    if lastCloudUpdate == nil { lastCloudUpdate = Date() }
+                    // Same picture as before: report when the source last changed, not now.
+                    if lastCloudUpdate == nil { lastCloudUpdate = (m.d["clouds"] as? String).flatMap(DataService.parseISO) ?? Date() }
                     return false
                 }
                 // Re-encode as a grayscale JPEG capped at 8K.
@@ -244,7 +245,10 @@ final class DataService: NSObject {
 
     private func writeHistory(_ m: Manifest, _ entries: [(file: String, t: Date)]) {
         let dir = Paths.ensure(Paths.data.appendingPathComponent("history", isDirectory: true))
-        let cutoff = Date().addingTimeInterval(-DataService.historyWindow)
+        // Measured from the newest frame, not from now: when the cloud source stalls,
+        // the last day it delivered keeps looping instead of the history emptying.
+        let newest = entries.map(\.t).max() ?? Date()
+        let cutoff = newest.addingTimeInterval(-DataService.historyWindow)
         let keep = entries
             .filter { $0.t >= cutoff && FileManager.default.fileExists(atPath: Paths.data.appendingPathComponent($0.file).path) }
             .sorted { $0.t < $1.t }

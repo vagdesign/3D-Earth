@@ -277,7 +277,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         var parts = ["Showing on \(windows.count) display(s)."]
         let tf = DateFormatter()
         tf.timeStyle = .short
-        parts.append(data.lastCloudUpdate.map { "Clouds updated \(tf.string(from: $0))." } ?? "Clouds: waiting for the first download.")
+        if let t = data.lastCloudUpdate, Date().timeIntervalSince(t) > 12 * 3600 {
+            let df = DateFormatter()
+            df.dateStyle = .short
+            df.timeStyle = .short
+            parts.append("Clouds: the cloud map source has not published a new map since \(df.string(from: t)); showing the last one.")
+        } else {
+            parts.append(data.lastCloudUpdate.map { "Clouds updated \(tf.string(from: $0))." } ?? "Clouds: waiting for the first download.")
+        }
         parts.append("Active tropical storms: \(data.lastStormCount).")
         parts.append(String(format: "Cloud history: %d map(s) over %.1f h (the 24 h loop needs about an hour or more).", data.historyCount, data.historyHours))
         #if APPSTORE

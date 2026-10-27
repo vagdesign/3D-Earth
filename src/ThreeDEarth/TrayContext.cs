@@ -356,7 +356,10 @@ internal sealed class TrayContext : ApplicationContext
         var parts = new List<string>
         {
             $"Showing on {_windows.Count} monitor(s){(_layer.RaisedDesktop ? " (Windows 11 24H2 desktop)" : "")}.",
-            _data.LastCloudUpdate is { } t ? $"Clouds updated {t:t}." : "Clouds: waiting for the first download.",
+            _data.LastCloudUpdate is not { } t ? "Clouds: waiting for the first download."
+                : DateTime.Now - t > TimeSpan.FromHours(12)
+                    ? $"Clouds: the cloud map source has not published a new map since {t:g}; showing the last one."
+                    : $"Clouds updated {t:t}.",
             $"Active tropical storms: {_data.LastStormCount}.",
             $"Cloud history: {_data.HistoryCount} map(s) over {_data.HistoryHours:0.#} h (the 24 h loop needs about an hour or more).",
         };

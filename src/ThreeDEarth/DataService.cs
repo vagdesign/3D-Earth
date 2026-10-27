@@ -202,6 +202,10 @@ internal sealed class DataService : IDisposable
                 string hash = Convert.ToHexString(SHA256.HashData(bytes))[..16];
                 if (manifest["cloudsHash"]?.GetValue<string>() == hash && File.Exists(Path.Combine(Paths.Data, "clouds.jpg")))
                 {
+                    // Same picture as before: report when the source last changed, not now.
+                    if (LastCloudUpdate == null && DateTime.TryParse(manifest["clouds"]?.ToString(), CultureInfo.InvariantCulture,
+                            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var lastChange))
+                        LastCloudUpdate = lastChange.ToLocalTime();
                     LastCloudUpdate ??= DateTime.Now;
                     return false;
                 }
@@ -271,7 +275,10 @@ internal sealed class DataService : IDisposable
     {
         string dir = Path.Combine(Paths.Data, "history");
         Directory.CreateDirectory(dir);
-        var cutoff = DateTime.UtcNow - HistoryWindow;
+        // Measured from the newest frame, not from now: when the cloud source stalls,
+        // the last day it delivered keeps looping instead of the history emptying.
+        var newest = entries.Count > 0 ? entries.Max(e => e.T) : DateTime.UtcNow;
+        var cutoff = newest - HistoryWindow;
         var keep = entries
             .Where(e => e.T >= cutoff && File.Exists(Path.Combine(Paths.Data, e.File)))
             .OrderBy(e => e.T)
