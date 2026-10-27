@@ -582,6 +582,38 @@ jobs:
           else
             echo "macfile=\`3D-Earth-mac-$v.zip\`, unzip it and move **3D Earth** to Applications" >> "$GITHUB_OUTPUT"
           fi
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+          path: src
+      - name: Release notes
+        # "What's new" is this version's section of CHANGELOG.md.
+        env:
+          V: ${{ steps.ver.outputs.version }}
+          MACFILE: ${{ steps.ver.outputs.macfile }}
+          MACNOTE: ${{ steps.ver.outputs.macnote }}
+          SHA: ${{ github.sha }}
+        run: |
+          awk -v v="$V" '/^## / { on = ($2 == v); next } on { print }' src/CHANGELOG.md > whats-new.md
+          {
+            if grep -q '[^[:space:]]' whats-new.md; then echo "## What's new"; cat whats-new.md; echo; fi
+            echo "## Download"
+            echo
+            echo "**Windows: download \`3DEarth-Setup-$V.exe\` below and run it.**"
+            echo
+            echo "- Windows 10 (1809+) or Windows 11, x64. No administrator rights needed."
+            echo "- Windows SmartScreen may warn because the installer is not code-signed: click *More info → Run anyway*."
+            echo "- Needs the Microsoft Edge WebView2 Runtime (already on almost every PC; the installer offers the link if missing)."
+            echo "- Prefer no installer? Use the portable \`.zip\`: unzip anywhere and run \`3DEarth.exe\`."
+            echo "- Already installed? The app updates itself: tray → *Check for updates* (it also checks automatically every 12 hours)."
+            echo
+            echo "**macOS 12 Monterey or later (Apple silicon and Intel):** download $MACFILE, then open it. $MACNOTE"
+            echo "- It lives in the menu bar (globe icon), with no Dock icon. *Open at login* is in that menu and in Settings."
+            echo
+            echo "Built from $SHA."
+          } > notes.md
+          cat notes.md
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.version }}
@@ -589,16 +621,4 @@ jobs:
           name: 3D Earth ${{ steps.ver.outputs.version }}
           make_latest: true
           files: dist/*
-          body: |
-            **Windows: download `3DEarth-Setup-${{ steps.ver.outputs.version }}.exe` below and run it.**
-
-            - Windows 10 (1809+) or Windows 11, x64. No administrator rights needed.
-            - Windows SmartScreen may warn because the installer is not code-signed: click *More info → Run anyway*.
-            - Needs the Microsoft Edge WebView2 Runtime (already on almost every PC; the installer offers the link if missing).
-            - Prefer no installer? Use the portable `.zip`: unzip anywhere and run `3DEarth.exe`.
-            - Already installed? The app updates itself: tray → *Check for updates* (it also checks automatically every 12 hours).
-
-            **macOS 12 Monterey or later (Apple silicon and Intel):** download ${{ steps.ver.outputs.macfile }}, then open it. ${{ steps.ver.outputs.macnote }}
-            - It lives in the menu bar (globe icon), with no Dock icon. *Open at login* is in that menu and in Settings.
-
-            Built from ${{ github.sha }}.
+          body_path: notes.md

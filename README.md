@@ -135,6 +135,25 @@ Everything is in its real place. The scene uses the Earth's real rotation (sider
 
 You can set your own cloud source in **Settings → Cloud map URL**. It must be an equirectangular (2:1) image with white clouds on black.
 
+### Data service (sources that change without an app update)
+
+The apps do not hard-code where the clouds come from. At every weather refresh they read
+[`sources.json`](https://vagdesign.github.io/3D-Earth/sources.json) from the project's data site (GitHub Pages),
+which lists the cloud sources in priority order, each with a time limit and a maximum age:
+
+1. **3D Earth cloud service**: [`cloudservice/`](cloudservice/) rebuilds the global cloud map every 3 hours from EUMETSAT's public satellite layers (infrared 10.8 µm, dust and natural-colour RGB; method from Matt Eason's CC0 [live-cloud-maps](https://github.com/matteason/live-cloud-maps)) and publishes it at 2K, 4K and 8K with a `status.json` timestamp ([`.github/workflows/clouds.yml`](.github/workflows/clouds.yml)).
+2. **Matt Eason's live cloud maps.**
+3. **EUMETSAT's infrared world cloud map**, fetched directly by the app and turned into a cloud map on the spot.
+
+A source is skipped within seconds when it does not answer, answers with something that is not an image, or is
+stale (no new map for longer than its maximum age, 9 hours). The current clouds stay on screen until a fresh map
+arrives. Settings show which source the clouds came from, and the log says why the others were skipped.
+
+To change sources for every installation (Windows, macOS and the Mac App Store version alike), edit
+[`sources/sources.json`](sources/sources.json) and push: the data site is republished, and installations pick it up at
+their next refresh. `manifestUrls` lists where the file itself lives, so it can move (another organisation, a custom
+domain) without breaking existing installations. Each app also ships a copy of the file for its very first start.
+
 ## Development
 
 Preview the scene in a browser (no Windows needed):
@@ -158,11 +177,17 @@ dotnet publish src/ThreeDEarth/ThreeDEarth.csproj -c Release -r win-x64 --self-c
 Build the Mac app (on a Mac with Xcode or the Command Line Tools):
 
 ```bash
-mac/build.sh 0.7.0          # → out/3D Earth.app (universal, ad-hoc signed)
+mac/build.sh 0.8.0          # → out/3D Earth.app (universal, ad-hoc signed)
 open "out/3D Earth.app"     # add --args --devtools to enable the Web Inspector
 ```
 
 GitHub Actions builds the Windows installer and portable zip and the universal Mac app on every push and pull request. With the signing secrets present the Mac app is signed with Developer ID (hardened runtime), notarized, stapled and checked with `spctl`, then launched on the runner as a smoke test (snapshot + desktop screenshot, Apple silicon and Intel under Rosetta). Pushing to `main` or a tag `vX.Y.Z` creates the release with both platforms; pull requests never publish.
+
+The data site (`sources.json` and the cloud map) is published by `.github/workflows/clouds.yml` every 3 hours and on
+every push that changes `sources/` or `cloudservice/`; such pushes do not create an app release. To try the cloud
+service locally: `cd cloudservice && npm ci && node generate.mjs ../site`.
+
+Release notes come from this version's section in [`CHANGELOG.md`](CHANGELOG.md).
 
 Logs are written to `%LOCALAPPDATA%\3D Earth\3DEarth.log`. Start with `--devtools` to be able to inspect the page.
 
