@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    # Data-site changes (clouds.yml publishes them) need no app release.
+    paths-ignore: ['sources/**', 'cloudservice/**', '.github/workflows/clouds.yml']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -21,7 +23,7 @@ permissions:
   contents: write
 
 env:
-  VERSION: 0.7.5
+  VERSION: 0.8.0
 
 jobs:
   scene:
@@ -98,7 +100,7 @@ jobs:
       - name: Verify output
         shell: pwsh
         run: |
-          foreach ($f in 'publish/3DEarth.exe', 'publish/web/index.html', 'publish/web/js/main.js', 'publish/web/assets/earth_day.jpg', 'publish/WebView2Loader.dll') {
+          foreach ($f in 'publish/3DEarth.exe', 'publish/web/index.html', 'publish/web/js/main.js', 'publish/web/assets/earth_day.jpg', 'publish/WebView2Loader.dll', 'publish/sources.json') {
             if (!(Test-Path $f)) { throw "missing $f" }
           }
 

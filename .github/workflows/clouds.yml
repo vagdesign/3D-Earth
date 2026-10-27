@@ -1,0 +1,112 @@
+name: Data site (clouds + sources)
+
+# Publishes https://vagdesign.github.io/3D-Earth/ (GitHub Pages):
+#   sources.json                               data sources every installation reads
+#   clouds/{8192x4096,4096x2048,2048x1024}/clouds.jpg, clouds/status.json
+# The cloud map is rebuilt from EUMETSAT every 3 hours. When EUMETSAT fails or has
+# nothing new, the previous map (and its time) is carried over, so apps see it age
+# and fall back to the next source in sources.json.
+
+on:
+  schedule:
+    - cron: '23 */3 * * *'
+  push:
+    branches: [main]
+    paths: ['sources/**', 'cloudservice/**', '.github/workflows/clouds.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: write
+
+concurrency:
+  group: data-site
+  cancel-in-progress: false
+
+env:
+  SITE_URL: https://vagdesign.github.io/3D-Earth
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudservice/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: cloudservice
+
+      - name: Previous status
+        id: prev
+        run: |
+          if curl -fsSL --retry 3 "$SITE_URL/clouds/status.json" -o prev-status.json; then
+            echo "hash=$(jq -r '.irHash // empty' prev-status.json)" >> "$GITHUB_OUTPUT"
+            cat prev-status.json
+          else
+            echo "No previous status (first run?)"
+          fi
+
+      - name: Build cloud map
+        id: gen
+        working-directory: cloudservice
+        run: |
+          set +e
+          node generate.mjs ../site --prev-hash "${{ steps.prev.outputs.hash }}"
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ $code -eq 0 ]; then echo "::notice::New cloud map published"
+          elif [ $code -eq 3 ]; then echo "::notice::EUMETSAT has nothing new; keeping the previous map"
+          else echo "::warning::Cloud map build failed; keeping the previous map"; fi
+          exit 0
+
+      - name: Carry over the previous map
+        if: steps.gen.outputs.code != '0'
+        run: |
+          rm -rf site/clouds
+          if [ -f prev-status.json ]; then
+            mkdir -p site/clouds
+            cp prev-status.json site/clouds/status.json
+            for s in 8192x4096 4096x2048 2048x1024; do
+              mkdir -p "site/clouds/$s"
+              curl -fsSL --retry 3 "$SITE_URL/clouds/$s/clouds.jpg" -o "site/clouds/$s/clouds.jpg" || rm -f "site/clouds/$s/clouds.jpg"
+            done
+          fi
+
+      - name: Sources and index
+        run: |
+          mkdir -p site
+          jq . sources/sources.json > site/sources.json
+          cat > site/index.html <<'EOF'
+          <!doctype html><meta charset="utf-8"><title>3D Earth data</title>
+          <p>Data service for <a href="https://github.com/vagdesign/3D-Earth">3D Earth</a>:
+          <a href="sources.json">sources.json</a>, <a href="clouds/status.json">clouds/status.json</a>.
+          Cloud maps contain modified EUMETSAT data (method from
+          <a href="https://github.com/matteason/live-cloud-maps">live-cloud-maps</a>, CC0).</p>
+          EOF
+          ls -lR site | head -40
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Keep the schedule alive
+        # GitHub pauses scheduled workflows in repositories without activity for 60 days.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/clouds.yml/enable" || true
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

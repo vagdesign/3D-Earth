@@ -180,54 +180,104 @@ internal sealed class DataService : IDisposable
 
     // ---------------------------------------------------------------- clouds
 
-    private IEnumerable<string> CloudUrls()
-    {
-        var s = _settings();
-        if (!string.IsNullOrWhiteSpace(s.CustomCloudUrl)) yield return s.CustomCloudUrl.Trim();
-        string size = s.Quality switch { "high" => "8192x4096", "low" => "2048x1024", _ => "4096x2048" };
-        // Matt Eason's live cloud maps: global composite of geostationary satellite
-        // imagery (EUMETSAT / NOAA / JMA), refreshed several times a day.
-        yield return $"https://clouds.matteason.co.uk/images/{size}/clouds.jpg";
-        if (size != "4096x2048") yield return "https://clouds.matteason.co.uk/images/4096x2048/clouds.jpg";
-    }
-
+    /// <summary>
+    /// Tries the cloud sources in order (custom URL, then sources.json) and takes the
+    /// first with a fresh map. A source is skipped when it does not answer within its
+    /// timeout, answers with something that is not an image, or is stale: its status
+    /// file, or the map itself, has not changed for longer than its maxAgeHours.
+    /// </summary>
     private async Task<bool> UpdateCloudsAsync(JsonObject manifest)
     {
-        foreach (var url in CloudUrls())
+        var s = _settings();
+        string wanted = s.Quality switch { "high" => "8192x4096", "low" => "2048x1024", _ => "4096x2048" };
+        var sources = new List<CloudSource>();
+        if (!string.IsNullOrWhiteSpace(s.CustomCloudUrl))
+            sources.Add(new CloudSource("custom", "custom cloud map URL", "image", s.CustomCloudUrl.Trim(), Array.Empty<string>(),
+                null, 0, 20, new JsonObject()));
+        sources.AddRange(SourceList.Clouds(await SourceList.LoadAsync(_http)));
+
+        var state = manifest["cloudSources"] as JsonObject ?? new JsonObject();
+        manifest["cloudSources"] = state;
+        string cloudsPath = Path.Combine(Paths.Data, "clouds.jpg");
+        string? currentHash = manifest["cloudsHash"]?.ToString();
+        var now = DateTime.UtcNow;
+        var skipped = new List<string>();
+
+        foreach (var src in sources)
         {
             try
             {
-                var bytes = await DownloadImageAsync(url, minBytes: 30_000);
-                if (bytes == null) continue;
-                string hash = Convert.ToHexString(SHA256.HashData(bytes))[..16];
-                if (manifest["cloudsHash"]?.GetValue<string>() == hash && File.Exists(Path.Combine(Paths.Data, "clouds.jpg")))
+                var maxAge = TimeSpan.FromHours(src.MaxAgeHours);
+                if (src.Status != null && src.MaxAgeHours > 0 && await StatusTimeAsync(src) is { } published && now - published > maxAge)
                 {
-                    // Same picture as before: report when the source last changed, not now.
-                    if (LastCloudUpdate == null && DateTime.TryParse(manifest["clouds"]?.ToString(), CultureInfo.InvariantCulture,
-                            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var lastChange))
-                        LastCloudUpdate = lastChange.ToLocalTime();
+                    skipped.Add($"{src.Name}: no new map since {published.ToLocalTime():g}");
+                    continue;
+                }
+
+                string size = SourceList.PickSize(src.Sizes, wanted);
+                byte[]? bytes = src.Type == "wms-ir"
+                    ? await SourceList.BuildWmsIrAsync(src, size, (u, t) => DownloadImageAsync(u, 10_000, t))
+                    : await DownloadImageAsync(src.Url.Replace("{size}", size), 30_000, src.TimeoutSeconds);
+                if (bytes == null) { skipped.Add($"{src.Name}: no usable answer"); continue; }
+
+                // When did this source's picture last change?
+                string hash = Convert.ToHexString(SHA256.HashData(bytes))[..16];
+                var changed = now;
+                if (state[src.Id] is JsonObject st && st["hash"]?.ToString() == hash && TryUtc(st["changed"], out var c)) changed = c;
+                else if (state[src.Id] == null && hash == currentHash && TryUtc(manifest["clouds"], out var c2)) changed = c2;
+                state[src.Id] = new JsonObject { ["hash"] = hash, ["changed"] = changed.ToString("o") };
+                if (src.MaxAgeHours > 0 && now - changed > maxAge)
+                {
+                    skipped.Add($"{src.Name}: same map since {changed.ToLocalTime():g}");
+                    continue;
+                }
+
+                CloudSourceName = src.Name;
+                if (hash == currentHash && File.Exists(cloudsPath))
+                {
+                    if (LastCloudUpdate == null && TryUtc(manifest["clouds"], out var last)) LastCloudUpdate = last.ToLocalTime();
                     LastCloudUpdate ??= DateTime.Now;
                     return false;
                 }
-                // Re-encode as a single-channel-friendly JPEG capped at 8K.
-                SaveImage(bytes, Path.Combine(Paths.Data, "clouds.jpg"), 8192, grayscale: true);
+                SaveImage(bytes, cloudsPath, 8192, grayscale: true);
                 manifest["cloudsHash"] = hash;
-                manifest["clouds"] = DateTime.UtcNow.ToString("o");
+                manifest["clouds"] = now.ToString("o");
                 manifest["cloudsFile"] = "clouds.jpg";
-                manifest["cloudsSource"] = url;
+                manifest["cloudsSource"] = src.Id;
                 AddToHistory(bytes, manifest);
                 LastCloudUpdate = DateTime.Now;
-                Log.Info("Clouds updated from " + url);
+                Log.Info($"Clouds updated from {src.Name} ({size})" + (skipped.Count > 0 ? "; skipped " + string.Join("; ", skipped) : ""));
                 return true;
             }
             catch (Exception ex)
             {
-                LastError = "Clouds: " + ex.Message;
-                Log.Error("Clouds from " + url, ex);
+                skipped.Add($"{src.Name}: {ex.Message}");
             }
         }
+
+        // Nothing fresh anywhere: keep the current map and say why.
+        LastError = "Clouds: no source has a new map (" + string.Join("; ", skipped) + ")";
+        Log.Info(LastError + $" [source list: {SourceList.Origin}]");
+        if (LastCloudUpdate == null && TryUtc(manifest["clouds"], out var kept)) LastCloudUpdate = kept.ToLocalTime();
         return false;
     }
+
+    public string CloudSourceName { get; private set; } = "";
+
+    private async Task<DateTime?> StatusTimeAsync(CloudSource src)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(src.TimeoutSeconds));
+            var json = JsonNode.Parse(await _http.GetStringAsync(src.Status, cts.Token));
+            return TryUtc(json?["time"], out var t) ? t : null;
+        }
+        catch { return null; }    // no status: judge the map itself
+    }
+
+    private static bool TryUtc(JsonNode? node, out DateTime t) =>
+        DateTime.TryParse(node?.ToString(), CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out t);
 
     // ---------------------------------------------------------------- 24 h history
 
@@ -448,9 +498,11 @@ internal sealed class DataService : IDisposable
 
     // ---------------------------------------------------------------- helpers
 
-    private async Task<byte[]?> DownloadImageAsync(string url, int minBytes)
+    /// <summary>headerTimeout: seconds to wait for the server to start answering.</summary>
+    private async Task<byte[]?> DownloadImageAsync(string url, int minBytes, double headerTimeout = 60)
     {
-        using var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+        using var headCts = new CancellationTokenSource(TimeSpan.FromSeconds(headerTimeout));
+        using var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, headCts.Token);
         if (!resp.IsSuccessStatusCode)
         {
             Log.Info($"{url} -> HTTP {(int)resp.StatusCode}");

@@ -359,7 +359,7 @@ internal sealed class TrayContext : ApplicationContext
             _data.LastCloudUpdate is not { } t ? "Clouds: waiting for the first download."
                 : DateTime.Now - t > TimeSpan.FromHours(12)
                     ? $"Clouds: the cloud map source has not published a new map since {t:g}; showing the last one."
-                    : $"Clouds updated {t:t}.",
+                    : $"Clouds updated {t:t}{(_data.CloudSourceName.Length > 0 ? " (" + _data.CloudSourceName + ")" : "")}.",
             $"Active tropical storms: {_data.LastStormCount}.",
             $"Cloud history: {_data.HistoryCount} map(s) over {_data.HistoryHours:0.#} h (the 24 h loop needs about an hour or more).",
         };

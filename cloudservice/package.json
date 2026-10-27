@@ -1,0 +1,9 @@
+{
+  "name": "3d-earth-cloudservice",
+  "private": true,
+  "type": "module",
+  "description": "Builds the 3D Earth global cloud map from EUMETSAT WMS imagery (method from matteason/live-cloud-maps, CC0)",
+  "dependencies": {
+    "sharp": "^0.34.4"
+  }
+}

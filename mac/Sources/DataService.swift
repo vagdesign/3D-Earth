@@ -168,46 +168,99 @@ final class DataService: NSObject {
 
     // MARK: clouds
 
-    private func cloudURLs() -> [String] {
-        let s = settings()
-        var list: [String] = []
-        let custom = s.customCloudUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !custom.isEmpty { list.append(custom) }
-        let size = s.quality == "high" ? "8192x4096" : s.quality == "low" ? "2048x1024" : "4096x2048"
-        // Matt Eason's live cloud maps: global composite of geostationary satellite
-        // imagery (EUMETSAT / NOAA / JMA), refreshed several times a day.
-        list.append("https://clouds.matteason.co.uk/images/\(size)/clouds.jpg")
-        if size != "4096x2048" { list.append("https://clouds.matteason.co.uk/images/4096x2048/clouds.jpg") }
-        return list
-    }
-
+    /// Tries the cloud sources in order (custom URL, then sources.json) and takes the
+    /// first with a fresh map. A source is skipped when it does not answer within its
+    /// timeout, answers with something that is not an image, or is stale: its status
+    /// file, or the map itself, has not changed for longer than its maxAgeHours.
     private func updateClouds(_ m: Manifest) async -> Bool {
+        let s = settings()
+        let wanted = s.quality == "high" ? "8192x4096" : s.quality == "low" ? "2048x1024" : "4096x2048"
+        var sources: [CloudSource] = []
+        let custom = s.customCloudUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !custom.isEmpty {
+            sources.append(CloudSource(id: "custom", name: "custom cloud map URL", type: "image", url: custom, sizes: [],
+                                       status: nil, maxAgeHours: 0, timeoutSeconds: 20, raw: [:]))
+        }
+        sources += SourceList.clouds(await SourceList.load(session))
+
+        var state = m.d["cloudSources"] as? [String: Any] ?? [:]
+        defer { m.d["cloudSources"] = state }
         let file = Paths.data.appendingPathComponent("clouds.jpg")
-        for u in cloudURLs() {
+        let currentHash = m.d["cloudsHash"] as? String
+        let lastChange = (m.d["clouds"] as? String).flatMap(DataService.parseISO)
+        let now = Date()
+        var skipped: [String] = []
+        let df = DateFormatter()
+        df.dateStyle = .short
+        df.timeStyle = .short
+
+        for src in sources {
             do {
-                guard let bytes = try await downloadImage(u, minBytes: 30_000) else { continue }
+                let maxAge = src.maxAgeHours * 3600
+                if src.maxAgeHours > 0, let status = src.status, let published = await statusTime(status, timeout: src.timeoutSeconds),
+                   now.timeIntervalSince(published) > maxAge {
+                    skipped.append("\(src.name): no new map since \(df.string(from: published))")
+                    continue
+                }
+                let size = SourceList.pickSize(src.sizes, wanted)
+                let bytes: Data?
+                if src.type == "wms-ir" {
+                    bytes = try await SourceList.buildWmsIr(src, size: size) { u, t in try await self.downloadImage(u, minBytes: 10_000, timeout: t) }
+                } else {
+                    bytes = try await downloadImage(src.url.replacingOccurrences(of: "{size}", with: size), minBytes: 30_000, timeout: src.timeoutSeconds)
+                }
+                guard let bytes else { skipped.append("\(src.name): no usable answer"); continue }
+
+                // When did this source's picture last change?
                 let hash = String(SHA256.hash(data: bytes).map { String(format: "%02X", $0) }.joined().prefix(16))
-                if (m.d["cloudsHash"] as? String) == hash && FileManager.default.fileExists(atPath: file.path) {
-                    // Same picture as before: report when the source last changed, not now.
-                    if lastCloudUpdate == nil { lastCloudUpdate = (m.d["clouds"] as? String).flatMap(DataService.parseISO) ?? Date() }
+                var changed = now
+                if let st = state[src.id] as? [String: Any] {
+                    if st["hash"] as? String == hash, let c = (st["changed"] as? String).flatMap(DataService.parseISO) { changed = c }
+                } else if hash == currentHash, let c = lastChange {
+                    changed = c
+                }
+                state[src.id] = ["hash": hash, "changed": DataService.iso(changed)]
+                if src.maxAgeHours > 0 && now.timeIntervalSince(changed) > maxAge {
+                    skipped.append("\(src.name): same map since \(df.string(from: changed))")
+                    continue
+                }
+
+                cloudSourceName = src.name
+                if hash == currentHash && FileManager.default.fileExists(atPath: file.path) {
+                    if lastCloudUpdate == nil { lastCloudUpdate = lastChange ?? now }
                     return false
                 }
-                // Re-encode as a grayscale JPEG capped at 8K.
                 try await DataService.saveImage(bytes, to: file, maxWidth: 8192, grayscale: true)
                 m.d["cloudsHash"] = hash
-                m.d["clouds"] = DataService.iso(Date())
+                m.d["clouds"] = DataService.iso(now)
                 m.d["cloudsFile"] = "clouds.jpg"
-                m.d["cloudsSource"] = u
+                m.d["cloudsSource"] = src.id
                 await addToHistory(bytes, m)
-                lastCloudUpdate = Date()
-                Log.info("Clouds updated from \(u)")
+                lastCloudUpdate = now
+                Log.info("Clouds updated from \(src.name) (\(size))" + (skipped.isEmpty ? "" : "; skipped " + skipped.joined(separator: "; ")))
                 return true
             } catch {
-                lastError = "Clouds: \(error.localizedDescription)"
-                Log.error("Clouds from \(u)", error)
+                skipped.append("\(src.name): \(error.localizedDescription)")
             }
         }
+
+        // Nothing fresh anywhere: keep the current map and say why.
+        lastError = "Clouds: no source has a new map (" + skipped.joined(separator: "; ") + ")"
+        Log.info(lastError + " [source list: \(SourceList.origin)]")
+        if lastCloudUpdate == nil { lastCloudUpdate = lastChange }
         return false
+    }
+
+    private(set) var cloudSourceName = ""
+
+    private func statusTime(_ s: String, timeout: TimeInterval) async -> Date? {
+        guard let url = URL(string: s) else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = timeout
+        guard let result = try? await session.data(for: req),
+              let obj = try? JSONSerialization.jsonObject(with: result.0) as? [String: Any],
+              let t = obj["time"] as? String else { return nil }      // no status: judge the map itself
+        return DataService.parseISO(t)
     }
 
     // MARK: 24 h history
@@ -385,9 +438,11 @@ final class DataService: NSObject {
 
     // MARK: helpers
 
-    private func downloadImage(_ s: String, minBytes: Int) async throws -> Data? {
+    /// timeout: seconds without an answer (or without data) before giving up.
+    private func downloadImage(_ s: String, minBytes: Int, timeout: TimeInterval = 90) async throws -> Data? {
         guard let url = URL(string: s) else { return nil }
         var req = URLRequest(url: url)
+        req.timeoutInterval = timeout
         // Solar System Scope answers direct downloads with a small HTML page unless
         // the request looks like it came from its texture page.
         if url.host?.hasSuffix("solarsystemscope.com") == true {

@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 VARIANT=developer-id
 if [ "${1:-}" = "--appstore" ]; then VARIANT=appstore; shift; fi
-VERSION="${1:-0.7.5}"
+VERSION="${1:-0.8.0}"
 BUILD="${2:-$VERSION}"
 MIN_MACOS=12.0   # Developer ID build: Monterey and later (Mac Pro 2013 etc. run 12 natively)
 SWIFT_DEFINES=()
@@ -52,6 +52,7 @@ fi
 cp -R web "$APP/Contents/Resources/web"
 rm -rf "$APP/Contents/Resources/web/data"
 cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+cp sources/sources.json "$APP/Contents/Resources/"   # built-in copy of the data-source list
 if [ "$VARIANT" = appstore ]; then cp mac/PrivacyInfo.xcprivacy "$APP/Contents/Resources/"; fi
 
 # App icon. The App Store needs a 1024 px image (icon_512x512@2x); mac/AppIcon-1024.png
