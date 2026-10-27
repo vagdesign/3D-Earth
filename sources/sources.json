@@ -11,7 +11,11 @@
       "id": "3dearth",
       "name": "3D Earth cloud service (EUMETSAT)",
       "url": "https://vagdesign.github.io/3D-Earth/clouds/{size}/clouds.jpg",
-      "sizes": ["2048x1024", "4096x2048", "8192x4096"],
+      "sizes": [
+        "2048x1024",
+        "4096x2048",
+        "8192x4096"
+      ],
       "status": "https://vagdesign.github.io/3D-Earth/clouds/status.json",
       "maxAgeHours": 9,
       "timeoutSeconds": 8
@@ -20,7 +24,11 @@
       "id": "matteason",
       "name": "Live cloud maps by Matt Eason",
       "url": "https://clouds.matteason.co.uk/images/{size}/clouds.jpg",
-      "sizes": ["2048x1024", "4096x2048", "8192x4096"],
+      "sizes": [
+        "2048x1024",
+        "4096x2048",
+        "8192x4096"
+      ],
       "maxAgeHours": 9,
       "timeoutSeconds": 8
     },
@@ -29,13 +37,18 @@
       "name": "EUMETSAT infrared world cloud map (direct)",
       "type": "wms-ir",
       "url": "https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:worldcloudmap_ir108&styles=&format=image/png&crs=EPSG:4326&bbox={bbox}&width={half}&height={half}",
-      "sizes": ["2048x1024", "4096x2048"],
-      "levels": [72, 178],
+      "sizes": [
+        "2048x1024"
+      ],
+      "levels": [
+        72,
+        178
+      ],
       "gamma": 1.46,
       "gain": 0.77,
       "gamma2": 2.0,
       "maxAgeHours": 9,
-      "timeoutSeconds": 15
+      "timeoutSeconds": 30
     }
   ]
 }

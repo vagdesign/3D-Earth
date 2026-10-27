@@ -21,7 +21,7 @@ sharp.cache(false);
 sharp.concurrency(2);
 
 const W = 8192, H = 4096, HALF = H;   // each WMS half is H x H
-const WMS = 'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&styles=&format=image/png&crs=EPSG:4326';
+const WMS = process.env.WMS_BASE || 'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&styles=&format=image/png&crs=EPSG:4326';
 const LAYERS = { IR: 'mumi:worldcloudmap_ir108', DUST: 'mumi:wideareacoverage_rgb_dust', VIS: 'mumi:wideareacoverage_rgb_natural' };
 const BBOX = { LEFT: '-90,-180,90,0', RIGHT: '-90,0,90,180' };
 
@@ -32,35 +32,74 @@ const prevHash = opt('--prev-hash');
 const inputDir = opt('--input-dir');
 if (!outDir) { console.error('usage: node generate.mjs <outDir> [--prev-hash h] [--input-dir d]'); process.exit(1); }
 
+const TILES = 4, TILE = HALF / TILES;   // EUMETSAT times out on 4096 px requests: ask for 1024 px tiles
+const POOL = 6;
+
 async function fetchPng(type, url) {
-  if (inputDir) return readFile(path.join(inputDir, `${type}.png`));
   let last;
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(120_000), headers: { 'User-Agent': '3DEarth-cloudservice (+https://github.com/vagdesign/3D-Earth)' } });
+      const t0 = Date.now();
+      const res = await fetch(url, { signal: AbortSignal.timeout(90_000), headers: { 'User-Agent': '3DEarth-cloudservice (+https://github.com/vagdesign/3D-Earth)' } });
       const type_ = res.headers.get('content-type') || '';
       const buf = Buffer.from(await res.arrayBuffer());
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       if (!type_.startsWith('image/png')) throw new Error(`unexpected ${type_}: ${buf.subarray(0, 200).toString()}`);
+      if (attempt > 1 || Date.now() - t0 > 30_000) console.log(`${type}: ${Math.round((Date.now() - t0) / 1000)} s (attempt ${attempt})`);
       return buf;
     } catch (e) {
       last = e;
       console.warn(`${type} attempt ${attempt}: ${e.message}`);
-      await new Promise((r) => setTimeout(r, attempt * 15_000));
+      await new Promise((r) => setTimeout(r, attempt * 10_000));
     }
   }
   throw new Error(`${type}: ${last?.message}`);
 }
 
-// Decodes a WMS half into raw RGB, checking size and that it is not blank.
-async function rgb(type, buf) {
+async function decodeRgb(buf, w, h, what) {
   const { data, info } = await sharp(buf, { limitInputPixels: false }).removeAlpha().toColourspace('srgb').raw()
     .toBuffer({ resolveWithObject: true });
-  if (info.width !== HALF || info.height !== HALF || info.channels !== 3) throw new Error(`${type}: got ${info.width}x${info.height}x${info.channels}`);
+  if (info.width !== w || info.height !== h || info.channels !== 3) throw new Error(`${what}: got ${info.width}x${info.height}x${info.channels}`);
+  return data;
+}
+
+// One hemisphere of one layer as raw RGB (HALF x HALF), fetched as TILES x TILES
+// small WMS requests. Returns { data, hash } or throws.
+async function loadHalf(layer, side) {
+  const type = `${layer}_${side}`;
+  const hash = createHash('sha256');
+  let data;
+  if (inputDir) {
+    const buf = await readFile(path.join(inputDir, `${type}.png`));
+    hash.update(buf);
+    data = await decodeRgb(buf, HALF, HALF, type);
+  } else {
+    data = Buffer.alloc(HALF * HALF * 3);
+    const lon0 = side === 'LEFT' ? -180 : 0, step = 180 / TILES;
+    const jobs = [];
+    for (let r = 0; r < TILES; r++) for (let c = 0; c < TILES; c++) jobs.push([r, c]);
+    const bufs = new Array(jobs.length);
+    let next = 0;
+    await Promise.all(Array.from({ length: POOL }, async () => {
+      while (next < jobs.length) {
+        const j = next++, [r, c] = jobs[j];
+        const latMax = 90 - r * step, latMin = latMax - step, lonMin = lon0 + c * step, lonMax = lonMin + step;
+        const url = `${WMS}&layers=${LAYERS[layer]}&bbox=${latMin},${lonMin},${latMax},${lonMax}&width=${TILE}&height=${TILE}`;
+        bufs[j] = await fetchPng(`${type}[${r},${c}]`, url);
+      }
+    }));
+    for (let j = 0; j < jobs.length; j++) {
+      const [r, c] = jobs[j];
+      hash.update(bufs[j]);
+      const tile = await decodeRgb(bufs[j], TILE, TILE, `${type}[${r},${c}]`);
+      for (let y = 0; y < TILE; y++)
+        tile.copy(data, ((r * TILE + y) * HALF + c * TILE) * 3, y * TILE * 3, (y + 1) * TILE * 3);
+    }
+  }
   let min = 255, max = 0;
   for (let i = 0; i < data.length; i += 997) { const v = data[i]; if (v < min) min = v; if (v > max) max = v; }
   if (max - min < 10) throw new Error(`${type}: blank image`);
-  return data;
+  return { data, hash: hash.digest('hex') };
 }
 
 // Joins two halves the wrong way round (right half on the left), as the original
@@ -80,23 +119,21 @@ const screen = (a, b) => (1 - (1 - a / 255) * (1 - b / 255)) * 255;
 const gamma = (g, v) => 255 * Math.pow(v / 255, 1 / g);
 
 async function main() {
-  const urls = [];
-  for (const [k, layer] of Object.entries(LAYERS))
-    for (const [s, bbox] of Object.entries(BBOX))
-      urls.push([`${k}_${s}`, `${WMS}&layers=${layer}&bbox=${bbox}&width=${HALF}&height=${HALF}`]);
-  const raw = {};
-  for (const [type, url] of urls) raw[type] = await fetchPng(type, url);
-
+  // IR is required; the dust and visible layers only add detail, so the map is
+  // still made (IR only) when EUMETSAT cannot deliver them.
+  const t0 = Date.now();
+  const irL = await loadHalf('IR', 'LEFT'), irR = await loadHalf('IR', 'RIGHT');
+  const irHash = createHash('sha256').update(irL.hash).update(irR.hash).digest('hex').slice(0, 16);
+  console.log(`IR loaded in ${Math.round((Date.now() - t0) / 1000)} s (${irHash})`);
   // Unchanged IR imagery means EUMETSAT has not published anything new.
-  const irHash = createHash('sha256').update(raw.IR_LEFT).update(raw.IR_RIGHT).digest('hex').slice(0, 16);
-  if (prevHash && prevHash === irHash) { console.log(`IR imagery unchanged (${irHash}); keeping the previous map`); process.exit(3); }
-
-  const px = {};
-  for (const type of Object.keys(raw)) px[type] = await rgb(type, raw[type]);
-  const ir = joinSwapped(px.IR_LEFT, px.IR_RIGHT, 3);
-  const dust = joinSwapped(px.DUST_LEFT, px.DUST_RIGHT, 3);
-  const vis = joinSwapped(px.VIS_LEFT, px.VIS_RIGHT, 3);
-  for (const k of Object.keys(px)) delete px[k];
+  if (prevHash && prevHash === irHash) { console.log('IR imagery unchanged; keeping the previous map'); process.exit(3); }
+  const ir = joinSwapped(irL.data, irR.data, 3);
+  const optional = async (layer) => {
+    try { return joinSwapped((await loadHalf(layer, 'LEFT')).data, (await loadHalf(layer, 'RIGHT')).data, 3); }
+    catch (e) { console.warn(`::warning::${layer} layer unavailable (${e.message}); continuing without it`); return null; }
+  };
+  const dust = await optional('DUST');
+  const vis = await optional('VIS');
 
   const out = Buffer.alloc(W * H);
   const fadeStart = W * 0.4, fadeEnd = W * 0.6, GAP = 3;
@@ -105,13 +142,16 @@ async function main() {
     const fillGaps = y > H / 8 && y < H - H / 8;     // the poles are mirrored later
     for (let x = 0; x < W; x++) {
       const p = y * W + x, i = p * 3;
-      const dustB = 255 - dust[i + 2];
-      const dustV = screen((dust[i] / 255) * (dustB / 255) * 255, 0.5 * dustB);
+      let dustV = 0;
+      if (dust) {
+        const dustB = 255 - dust[i + 2];
+        dustV = screen((dust[i] / 255) * (dustB / 255) * 255, 0.5 * dustB);
+      }
       const irV = gamma(1.46, lerp(72, 178, 0, 255, ir[i]));
       let v = gamma(2.0, screen(dustV, irV * 0.77));
-      const r = vis[i], g = vis[i + 1], b = vis[i + 2];
+      const r = vis ? vis[i] : 0, g = vis ? vis[i + 1] : 128, b = vis ? vis[i + 2] : 255;
       const diff = Math.max(r, g, b) - Math.min(r, g, b);
-      if (diff < 25 || (r < g && Math.abs(g - b) < 11 && g > 150)) {
+      if (vis && (diff < 25 || (r < g && Math.abs(g - b) < 11 && g > 150))) {
         // Grey/white in the visible image: small clouds the IR misses (daylight only).
         const visV = gamma(1.5, Math.max(r, g, b));
         const am = x > fadeStart && x < fadeEnd && visV < 255 ? Math.abs(lerp(fadeStart, fadeEnd, -1, 1, x)) : 1;
@@ -155,7 +195,8 @@ async function main() {
     await sharp(map, { raw: { width: W, height: H, channels: 1 }, limitInputPixels: false })
       .resize(w, h, { kernel: 'lanczos3' }).toColourspace('b-w').jpeg({ quality: 82, mozjpeg: true }).toFile(path.join(sub, 'clouds.jpg'));
   }
-  const status = { time: new Date().toISOString(), irHash, source: 'EUMETSAT WMS (IR 10.8, Dust RGB, Natural colour RGB)', attribution: 'Contains modified EUMETSAT data' };
+  const layers = ['IR 10.8', dust && 'Dust RGB', vis && 'Natural colour RGB'].filter(Boolean).join(', ');
+  const status = { time: new Date().toISOString(), irHash, source: `EUMETSAT WMS (${layers})`, attribution: 'Contains modified EUMETSAT data' };
   await writeFile(path.join(dir, 'status.json'), JSON.stringify(status, null, 2));
   console.log(`Cloud map written (${irHash})`);
 }
