@@ -41,6 +41,10 @@ You only install once. After that, the app keeps itself up to date:
 
 ## Install on macOS
 
+**Easiest: [get 3D Earth Wallpaper on the Mac App Store](https://apps.apple.com/app/id6816690485)** (macOS 13 Ventura or later). The App Store installs it and keeps it up to date.
+
+Or download it from GitHub (macOS 12 Monterey or later):
+
 1. Download `3D-Earth-mac-x.y.z.dmg` (or the `.zip`) from the [latest release](https://github.com/vagdesign/3D-Earth/releases/latest).
 2. Open the disk image and drag **3D Earth** to **Applications** (from the zip: unzip it, then move **3D Earth** to Applications).
 3. Open **3D Earth** from Applications or Launchpad. The Earth appears behind your desktop icons on every display and every Space, and a globe icon appears in the menu bar. There is no Dock icon.

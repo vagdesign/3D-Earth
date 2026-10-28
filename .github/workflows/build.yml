@@ -610,6 +610,7 @@ jobs:
             echo
             echo "**macOS 12 Monterey or later (Apple silicon and Intel):** download $MACFILE, then open it. $MACNOTE"
             echo "- It lives in the menu bar (globe icon), with no Dock icon. *Open at login* is in that menu and in Settings."
+            echo "- Also on the **[Mac App Store](https://apps.apple.com/app/id6816690485)** (macOS 13 or later), which installs and updates it automatically."
             echo
             echo "Built from $SHA."
           } > notes.md

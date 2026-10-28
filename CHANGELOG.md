@@ -11,6 +11,7 @@ The section for each version is shown on its GitHub release page.
 - **Sources can change without an app update.** The list of sources is read online at every weather refresh (`sources/sources.json`), so switching or adding a source reaches every installation, the Mac App Store version included, without a new release.
 - Settings show which source the current clouds came from; the log says why the others were skipped.
 - The 24-hour cloud loop keeps the last real day when every source stalls, instead of emptying.
+- Now also on the [Mac App Store](https://apps.apple.com/app/id6816690485).
 
 ## 0.7.5
 
